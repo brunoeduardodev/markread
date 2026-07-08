@@ -335,10 +335,11 @@ body,
   font-size: 0.82em;
 }
 
-/* Inline code flows with the text — a token color, not a box. */
+/* Inline code flows with the text — a bold token color, not a box. */
 .doc-content :not(pre) > code {
   color: var(--code);
   font-size: 0.85em;
+  font-weight: 600;
 }
 
 .doc-content pre {
