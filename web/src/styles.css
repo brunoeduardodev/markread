@@ -38,9 +38,9 @@
 :root[data-theme='vesper'] {
   --paper: #101010;
   --paper-raised: #161616;
-  --ink: #cfcfcf;
-  --ink-soft: #8b8b8b;
-  --ink-faint: #575757;
+  --ink: #ededed;
+  --ink-soft: #9b9b9b;
+  --ink-faint: #5e5e5e;
   --rule: #232323;
   --accent: #ffc799;
   /* Vesper is monochrome + peach. One accent, everywhere. */
