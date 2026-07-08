@@ -16,10 +16,11 @@
   /* The reward color. Use sparingly or it stops working. */
   --accent: #b4642d;
 
-  /* Semantic text palette — per theme */
-  --emphasis: #9a4d15; /* bold text */
-  --link: #9a4d15; /* link underline + hover */
-  --marker: #b4642d; /* list bullets, quote bar */
+  /* Semantic text palette — per theme, each with its own identity */
+  --emphasis: #97352f; /* bold — bordeaux, print rubrication on cream */
+  --link: #9a4d15; /* link underline + hover — copper */
+  --marker: #b4642d; /* list bullets, quote bar — copper */
+  --code: #276e5d; /* inline code — deep teal */
 
   --font-body: 'Literata Variable', Georgia, serif;
   --font-ui: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -46,6 +47,7 @@
   --emphasis: #ffc799;
   --link: #ffc799;
   --marker: #ffc799;
+  --code: #99ffe4; /* vesper mint — the secondary token */
 }
 
 /* Tokyo Night — indigo depths, storm-blue inks, neon at the edges. */
@@ -57,10 +59,12 @@
   --ink-faint: #565f89;
   --rule: #292e42;
   --accent: #ff9e64;
-  /* Tokyo Night earns its multi-color reputation. */
-  --emphasis: #ff9e64; /* orange — bold */
-  --link: #7aa2f7; /* blue — links */
+  /* Tokyo Night earns its multi-color reputation — orange is
+     reserved for the reward accent, never prose. */
+  --emphasis: #7aa2f7; /* blue — bold, the theme's hero color */
+  --link: #7dcfff; /* cyan — links */
   --marker: #bb9af7; /* purple — bullets & quote bars */
+  --code: #9ece6a; /* green — inline code */
 }
 
 * {
@@ -331,11 +335,10 @@ body,
   font-size: 0.82em;
 }
 
+/* Inline code flows with the text — a token color, not a box. */
 .doc-content :not(pre) > code {
-  background: var(--paper-raised);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  padding: 0.1em 0.35em;
+  color: var(--code);
+  font-size: 0.85em;
 }
 
 .doc-content pre {
