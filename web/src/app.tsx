@@ -35,6 +35,12 @@ function currentHashPath(): string {
  */
 const scroller = { target: 0, active: false };
 
+// The mouse always wins: any real scroll input cancels the keyboard glide,
+// otherwise the rAF loop fights the wheel and drags the page back.
+for (const cancelEvent of ['wheel', 'touchstart'] as const) {
+  addEventListener(cancelEvent, () => (scroller.active = false), { passive: true });
+}
+
 function smoothScrollBy(delta: number) {
   if (!scroller.active) scroller.target = window.scrollY;
   const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
@@ -43,6 +49,7 @@ function smoothScrollBy(delta: number) {
 
   scroller.active = true;
   const step = () => {
+    if (!scroller.active) return; // cancelled by wheel/touch
     const remaining = scroller.target - window.scrollY;
     if (Math.abs(remaining) < 0.5) {
       window.scrollTo({ top: scroller.target, behavior: 'instant' });
