@@ -1,0 +1,45 @@
+{
+  "name": "markread",
+  "version": "0.1.0",
+  "description": "A CLI-launched browser reading experience for Markdown — typography-first, ADHD-friendly, built for long AI-generated documents.",
+  "type": "module",
+  "bin": {
+    "markread": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "chokidar": "^4.0.3",
+    "get-port": "^7.1.0",
+    "hono": "^4.6.16",
+    "markdown-it": "^14.1.0",
+    "markdown-it-anchor": "^9.2.0",
+    "markdown-it-footnote": "^4.0.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "open": "^10.1.0",
+    "shiki": "^3.2.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@fontsource-variable/literata": "^5.1.1",
+    "@fontsource/ibm-plex-mono": "^5.1.1",
+    "@preact/preset-vite": "^2.9.3",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.5.13",
+    "preact": "^10.25.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.7"
+  }
+}

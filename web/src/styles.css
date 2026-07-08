@@ -1,0 +1,357 @@
+/* ---------------------------------------------------------------------------
+   markread — typography system
+   Editorial body (Literata) inside terminal chrome (IBM Plex Mono).
+   One accent (copper) reserved for progress & completion only.
+--------------------------------------------------------------------------- */
+
+:root {
+  /* Paper & ink — warm, never pure black on pure white (halation) */
+  --paper: #faf6ef;
+  --paper-raised: #f3eee4;
+  --ink: #221f1a;
+  --ink-soft: #6b6459;
+  --ink-faint: #a89f90;
+  --rule: #e5ddcd;
+
+  /* The reward color. Use sparingly or it stops working. */
+  --accent: #b4642d;
+
+  --font-body: 'Literata Variable', Georgia, serif;
+  --font-ui: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Reading measure: 45–75ch consensus, ~68ch target */
+  --measure: 68ch;
+  --body-size: 1.1875rem; /* 19px */
+  --body-leading: 1.6;
+
+  --sidebar-width: 17rem;
+}
+
+:root[data-theme='dark'] {
+  --paper: #171512;
+  --paper-raised: #201d19;
+  --ink: #d9d2c5;
+  --ink-soft: #948b7c;
+  --ink-faint: #665f53;
+  --rule: #2e2a24;
+  --accent: #d08544;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--paper);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--body-size);
+  line-height: var(--body-leading);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* --- Layout ------------------------------------------------------------- */
+
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-raised);
+  border-right: 1px solid var(--rule);
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+}
+
+.reading-pane {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  padding: 4rem 3rem 8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --- Sidebar ------------------------------------------------------------ */
+
+.brand {
+  padding: 1.25rem 1.25rem 1rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule);
+  user-select: none;
+}
+
+.brand-mark {
+  color: var(--accent);
+}
+
+.file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 0;
+}
+
+.file-link {
+  display: block;
+  padding: 0.4rem 1.25rem;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-left: 2px solid transparent;
+}
+
+.file-link:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--rule) 40%, transparent);
+}
+
+.file-link.active {
+  color: var(--ink);
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--rule) 55%, transparent);
+}
+
+.file-dir {
+  color: var(--ink-faint);
+}
+
+.sidebar-foot {
+  padding: 0.9rem 1.25rem;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+}
+
+/* --- Doc meta bar --------------------------------------------------------- */
+
+.doc-meta {
+  width: 100%;
+  max-width: var(--measure);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin-bottom: 2.5rem;
+  letter-spacing: 0.02em;
+}
+
+.empty-state {
+  color: var(--ink-faint);
+  font-style: italic;
+  margin-top: 30vh;
+}
+
+/* --- The reading surface -------------------------------------------------- */
+
+.doc-content {
+  width: 100%;
+  max-width: var(--measure);
+  text-align: left; /* never justify without proper hyphenation */
+}
+
+.doc-content > * + * {
+  margin-top: 1.1em; /* space-between paragraphs, no indents */
+}
+
+.doc-content h1,
+.doc-content h2,
+.doc-content h3,
+.doc-content h4 {
+  font-weight: 640;
+  line-height: 1.25;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
+}
+
+.doc-content h1 {
+  font-size: 2.1em;
+  font-weight: 700;
+  margin-top: 0;
+  margin-bottom: 1.2em;
+}
+
+.doc-content > h2 {
+  font-size: 1.45em;
+  margin-top: 2.2em;
+  padding-top: 1.6em;
+  border-top: 1px solid var(--rule); /* sections are chapters */
+}
+
+.doc-content > h3 {
+  font-size: 1.15em;
+  margin-top: 1.8em;
+}
+
+.doc-content h4 {
+  font-size: 1em;
+  margin-top: 1.6em;
+}
+
+.doc-content a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--ink-faint);
+  text-underline-offset: 0.18em;
+  transition: text-decoration-color 120ms ease;
+}
+
+.doc-content a:hover {
+  text-decoration-color: var(--ink);
+}
+
+.doc-content strong {
+  font-weight: 660;
+}
+
+.doc-content ul,
+.doc-content ol {
+  padding-left: 1.6em;
+}
+
+.doc-content li + li {
+  margin-top: 0.35em;
+}
+
+.doc-content li > ul,
+.doc-content li > ol {
+  margin-top: 0.35em;
+}
+
+.doc-content blockquote {
+  border-left: 2px solid var(--ink-faint);
+  padding-left: 1.2em;
+  color: var(--ink-soft);
+  font-style: italic;
+}
+
+.doc-content hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 2.5em auto;
+  width: 38%;
+}
+
+/* Task lists (GFM) */
+.doc-content .task-list-item {
+  list-style: none;
+  margin-left: -1.6em;
+  padding-left: 1.6em;
+}
+
+.doc-content .task-list-item input {
+  margin-right: 0.5em;
+  accent-color: var(--accent);
+}
+
+/* --- Code ----------------------------------------------------------------- */
+
+.doc-content code {
+  font-family: var(--font-ui);
+  font-size: 0.82em;
+}
+
+.doc-content :not(pre) > code {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.doc-content pre {
+  overflow-x: auto; /* wide content scrolls in its own container */
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1.1em 1.3em;
+  line-height: 1.55;
+  font-size: 0.85em;
+}
+
+.doc-content pre.shiki {
+  background-color: var(--paper-raised) !important;
+}
+
+/* Shiki dual-theme switch */
+:root[data-theme='dark'] .doc-content .shiki,
+:root[data-theme='dark'] .doc-content .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
+/* --- Tables ----------------------------------------------------------------
+   AI text is table-heavy; wide tables scroll, page never does. */
+
+.doc-content table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.88em;
+  line-height: 1.45;
+}
+
+.doc-content th,
+.doc-content td {
+  text-align: left;
+  padding: 0.5em 1em 0.5em 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+.doc-content th {
+  font-family: var(--font-ui);
+  font-size: 0.78em;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* --- Footnotes -------------------------------------------------------------- */
+
+.doc-content .footnotes {
+  margin-top: 3em;
+  padding-top: 1.5em;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85em;
+  color: var(--ink-soft);
+}
+
+/* --- Scrollbars (subtle, chrome-free) ---------------------------------------- */
+
+.file-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-list::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 3px;
+}
+
+/* --- Small screens ------------------------------------------------------------ */
+
+@media (max-width: 760px) {
+  .sidebar {
+    display: none;
+  }
+  .reading-pane {
+    margin-left: 0;
+    padding: 2rem 1.25rem 6rem;
+  }
+}
