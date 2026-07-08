@@ -28,6 +28,33 @@ function currentHashPath(): string {
   return decodeURIComponent(location.hash.replace(/^#\//, ''));
 }
 
+/**
+ * Butter scroller: j/k accumulate into a target position and a rAF loop
+ * eases toward it (fixed fraction of remaining distance per frame).
+ * Repeated/held keys extend the target instead of restarting an animation.
+ */
+const scroller = { target: 0, active: false };
+
+function smoothScrollBy(delta: number) {
+  if (!scroller.active) scroller.target = window.scrollY;
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+  scroller.target = Math.max(0, Math.min(maxScroll, scroller.target + delta));
+  if (scroller.active) return;
+
+  scroller.active = true;
+  const step = () => {
+    const remaining = scroller.target - window.scrollY;
+    if (Math.abs(remaining) < 0.5) {
+      window.scrollTo({ top: scroller.target, behavior: 'instant' });
+      scroller.active = false;
+      return;
+    }
+    window.scrollTo({ top: window.scrollY + remaining * 0.16, behavior: 'instant' });
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 export function App() {
   const [docs, setDocs] = useState<DocEntry[]>([]);
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -110,8 +137,8 @@ export function App() {
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
       const index = docs.findIndex((d) => d.path === currentHashPath());
-      if (event.key === 'j') window.scrollBy({ top: 120, behavior: 'smooth' });
-      else if (event.key === 'k') window.scrollBy({ top: -120, behavior: 'smooth' });
+      if (event.key === 'j') smoothScrollBy(160);
+      else if (event.key === 'k') smoothScrollBy(-160);
       else if (event.key === 'n' && index < docs.length - 1) location.hash = `#/${docs[index + 1].path}`;
       else if (event.key === 'p' && index > 0) location.hash = `#/${docs[index - 1].path}`;
       else if (event.key === 't') setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]);

@@ -27,7 +27,7 @@
 
   /* Reading measure: 45–75ch consensus, ~68ch target */
   --measure: 68ch;
-  --body-size: 1.1875rem; /* 19px */
+  --body-size: 1.25rem; /* 20px */
   --body-leading: 1.6;
 
   --sidebar-width: 17rem;
