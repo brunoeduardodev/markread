@@ -13,7 +13,7 @@ const LANGS = [
   'rust', 'diff', 'dockerfile',
 ];
 
-const THEMES = { light: 'vitesse-light', dark: 'vitesse-dark' } as const;
+const THEMES = { light: 'vitesse-light', vesper: 'vesper', 'tokyo-night': 'tokyo-night' } as const;
 
 export interface Heading {
   level: number;
@@ -34,7 +34,7 @@ let md: MarkdownIt | undefined;
 /** Shiki highlighter is expensive — create once and reuse (singleton). */
 export async function initRenderer(): Promise<void> {
   highlighter = await createHighlighter({
-    themes: [THEMES.light, THEMES.dark],
+    themes: Object.values(THEMES),
     langs: LANGS,
   });
 

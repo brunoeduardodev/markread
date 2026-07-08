@@ -27,14 +27,27 @@
   --sidebar-width: 17rem;
 }
 
-:root[data-theme='dark'] {
-  --paper: #171512;
-  --paper-raised: #201d19;
-  --ink: #d9d2c5;
-  --ink-soft: #948b7c;
-  --ink-faint: #665f53;
-  --rule: #2e2a24;
-  --accent: #d08544;
+/* Vesper — near-black monochrome with the signature peach.
+   Minimal warmth, maximal calm. */
+:root[data-theme='vesper'] {
+  --paper: #101010;
+  --paper-raised: #161616;
+  --ink: #cfcfcf;
+  --ink-soft: #8b8b8b;
+  --ink-faint: #575757;
+  --rule: #232323;
+  --accent: #ffc799;
+}
+
+/* Tokyo Night — indigo depths, storm-blue inks, neon at the edges. */
+:root[data-theme='tokyo-night'] {
+  --paper: #1a1b26;
+  --paper-raised: #16161e;
+  --ink: #c0caf5;
+  --ink-soft: #8189b5;
+  --ink-faint: #565f89;
+  --rule: #292e42;
+  --accent: #ff9e64;
 }
 
 * {
@@ -55,6 +68,13 @@ body {
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+/* Soft cross-fade when cycling themes — chrome only, not every code span */
+body,
+.sidebar,
+.doc-content pre {
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
 }
 
 /* --- Layout ------------------------------------------------------------- */
@@ -133,11 +153,24 @@ body {
 }
 
 .sidebar-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
   padding: 0.9rem 1.25rem;
   border-top: 1px solid var(--rule);
   color: var(--ink-faint);
   font-size: 0.6875rem;
   letter-spacing: 0.02em;
+}
+
+.theme-name {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 /* --- Doc meta bar --------------------------------------------------------- */
@@ -289,10 +322,15 @@ body {
   background-color: var(--paper-raised) !important;
 }
 
-/* Shiki dual-theme switch */
-:root[data-theme='dark'] .doc-content .shiki,
-:root[data-theme='dark'] .doc-content .shiki span {
-  color: var(--shiki-dark) !important;
+/* Shiki multi-theme switch — server renders per-theme CSS variables */
+:root[data-theme='vesper'] .doc-content .shiki,
+:root[data-theme='vesper'] .doc-content .shiki span {
+  color: var(--shiki-vesper) !important;
+}
+
+:root[data-theme='tokyo-night'] .doc-content .shiki,
+:root[data-theme='tokyo-night'] .doc-content .shiki span {
+  color: var(--shiki-tokyo-night) !important;
 }
 
 /* --- Tables ----------------------------------------------------------------

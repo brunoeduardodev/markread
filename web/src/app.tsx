@@ -15,7 +15,14 @@ interface Doc {
   title: string;
 }
 
-type Theme = 'light' | 'dark';
+const THEMES = ['light', 'vesper', 'tokyo-night'] as const;
+type Theme = (typeof THEMES)[number];
+
+function initialTheme(): Theme {
+  const stored = localStorage.getItem('markread:theme') as Theme | null;
+  if (stored && THEMES.includes(stored)) return stored;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'vesper' : 'light';
+}
 
 function currentHashPath(): string {
   return decodeURIComponent(location.hash.replace(/^#\//, ''));
@@ -25,10 +32,7 @@ export function App() {
   const [docs, setDocs] = useState<DocEntry[]>([]);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [active, setActive] = useState<string>(currentHashPath());
-  const [theme, setTheme] = useState<Theme>(
-    (localStorage.getItem('markread:theme') as Theme) ??
-      (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
-  );
+  const [theme, setTheme] = useState<Theme>(initialTheme);
   const contentRef = useRef<HTMLElement>(null);
 
   const loadTree = useCallback(async () => {
@@ -110,7 +114,7 @@ export function App() {
       else if (event.key === 'k') window.scrollBy({ top: -120, behavior: 'smooth' });
       else if (event.key === 'n' && index < docs.length - 1) location.hash = `#/${docs[index + 1].path}`;
       else if (event.key === 'p' && index > 0) location.hash = `#/${docs[index - 1].path}`;
-      else if (event.key === 't') setTheme((t) => (t === 'light' ? 'dark' : 'light'));
+      else if (event.key === 't') setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]);
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
@@ -136,6 +140,7 @@ export function App() {
         </nav>
         <footer class="sidebar-foot">
           <span class="kbd-hint">j/k scroll · n/p files · t theme</span>
+          <span class="theme-name">{theme}</span>
         </footer>
       </aside>
 
