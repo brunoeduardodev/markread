@@ -146,15 +146,51 @@ body,
   padding: 0.75rem 0;
 }
 
+.folder-rollup {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .file-link {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
   padding: 0.4rem 1.25rem;
   color: var(--ink-soft);
   text-decoration: none;
+  border-left: 2px solid transparent;
+}
+
+.file-label {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  border-left: 2px solid transparent;
+}
+
+.file-state {
+  flex: none;
+  font-size: 0.6875rem;
+}
+
+.file-state.dot {
+  width: 0.4em;
+  height: 0.4em;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-faint);
+  align-self: center;
+}
+
+.file-state.pct {
+  color: var(--ink-faint);
+}
+
+.file-state.done {
+  color: var(--accent);
 }
 
 .file-link:hover {
@@ -301,6 +337,70 @@ body,
   0% { transform: translateY(-0.05em) scale(0.6); }
   60% { transform: translateY(-0.05em) scale(1.45); }
   100% { transform: translateY(-0.05em) scale(1); }
+}
+
+/* --- Completion moment ----------------------------------------------------------
+   The one place a real celebration is allowed: a brief bar shimmer and a
+   quiet pill offering the next unread doc. Non-blocking, never a modal. */
+
+.progress-bar.complete .progress-fill.read {
+  animation: bar-shimmer 700ms ease;
+}
+
+@keyframes bar-shimmer {
+  0% { filter: brightness(1); }
+  35% { filter: brightness(1.9); }
+  100% { filter: brightness(1); }
+}
+
+.complete-pill {
+  position: fixed;
+  bottom: 2rem;
+  left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width) - var(--toc-width)) / 2);
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4em;
+  padding: 0.55rem 1.1rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+  animation: pill-in 350ms cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.complete-check {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.complete-next kbd {
+  font-family: inherit;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px;
+  padding: 0 0.35em;
+}
+
+@keyframes pill-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(0.75rem); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (max-width: 1180px) {
+  .complete-pill {
+    left: calc(var(--sidebar-width) + (100vw - var(--sidebar-width)) / 2);
+  }
+}
+
+@media (max-width: 760px) {
+  .complete-pill {
+    left: 50vw;
+  }
 }
 
 /* --- Resume marker ("you were here") ------------------------------------------- */

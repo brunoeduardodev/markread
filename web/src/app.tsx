@@ -5,6 +5,7 @@ interface DocEntry {
   path: string;
   name: string;
   dir: string;
+  wordCount: number;
 }
 
 interface Heading {
@@ -27,6 +28,7 @@ interface FileState {
   scrollY: number;
   sections: Record<string, SectionProgress>;
   completed: boolean;
+  readWords: number;
 }
 
 const THEMES = ['light', 'vesper', 'tokyo-night'] as const;
@@ -83,6 +85,19 @@ function smoothScrollBy(delta: number) {
 const progressSections = (doc: Doc): SectionMeta[] =>
   doc.headings.filter((h) => h.level <= 3);
 
+/** Next not-yet-completed doc after `from`, wrapping around the folder. */
+function nextUnread(
+  docs: DocEntry[],
+  state: Record<string, FileState>,
+  from: number,
+): DocEntry | undefined {
+  for (let i = 1; i <= docs.length; i++) {
+    const candidate = docs[(from + i) % docs.length];
+    if (!state[candidate.path]?.completed) return candidate;
+  }
+  return undefined;
+}
+
 const PERSIST_INTERVAL_MS = 3000;
 
 export function App() {
@@ -92,6 +107,7 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [resumeTop, setResumeTop] = useState<number | null>(null);
+  const [justCompleted, setJustCompleted] = useState(false);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
 
@@ -102,15 +118,21 @@ export function App() {
   // Resolves once /api/state has been loaded — loadDoc must wait for it,
   // otherwise resume races the state fetch and silently restores to 0.
   const stateReady = useRef<Promise<void> | null>(null);
+  // Observed reading-speed samples awaiting the next persist.
+  const wpmQueue = useRef<number[]>([]);
 
   const persistProgress = useCallback((path: string, useBeacon = false) => {
     const t = tracker.current;
     if (!path || !docRef.current) return;
+    const completed = t.allRead() || filesState.current[path]?.completed || false;
     const payload = JSON.stringify({
       path,
       scrollY: Math.round(window.scrollY),
       sections: t.snapshot(),
       wordCount: docRef.current.wordCount,
+      readWords: t.readWords(),
+      completed,
+      wpmSamples: wpmQueue.current.splice(0),
     });
     t.dirty = false;
     if (useBeacon) {
@@ -120,13 +142,19 @@ export function App() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: payload,
-      }).catch(() => {});
+      })
+        .then((r) => r.json())
+        .then((res) => {
+          if (typeof res?.wpm === 'number') wpm.current = res.wpm;
+        })
+        .catch(() => {});
     }
     // Keep the local mirror fresh so doc switches resume correctly.
     filesState.current[path] = {
       scrollY: Math.round(window.scrollY),
       sections: t.snapshot(),
-      completed: filesState.current[path]?.completed ?? false,
+      completed,
+      readWords: t.readWords(),
     };
   }, []);
 
@@ -146,6 +174,7 @@ export function App() {
     setDoc(data);
     docRef.current = data;
     setResumeTop(null);
+    setJustCompleted(false);
 
     requestAnimationFrame(() => {
       const saved = filesState.current[path];
@@ -222,13 +251,21 @@ export function App() {
     };
   }, [persistProgress]);
 
-  // Dwell → UI updates
+  // Dwell → UI updates, completion detection, WPM samples
   useEffect(() => {
     const t = tracker.current;
     t.onTick = () => setProgressVersion((v) => v + 1);
-    t.onRead = () => setProgressVersion((v) => v + 1);
+    t.onRead = () => {
+      setProgressVersion((v) => v + 1);
+      const path = docRef.current?.path;
+      if (path && t.allRead() && !filesState.current[path]?.completed) {
+        setJustCompleted(true);
+        persistProgress(path); // make the ✓ durable immediately
+      }
+    };
+    t.onSample = (sample) => wpmQueue.current.push(sample);
     return () => t.stop();
-  }, []);
+  }, [persistProgress]);
 
   // Scroll-spy + section re-measure on resize
   useEffect(() => {
@@ -292,11 +329,18 @@ export function App() {
       const target = event.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
 
-      const index = docs.findIndex((d) => d.path === currentHashPath());
+      const path = currentHashPath();
+      const index = docs.findIndex((d) => d.path === path);
       if (event.key === 'j') smoothScrollBy(160);
       else if (event.key === 'k') smoothScrollBy(-160);
-      else if (event.key === 'n' && index < docs.length - 1) location.hash = `#/${docs[index + 1].path}`;
-      else if (event.key === 'p' && index > 0) location.hash = `#/${docs[index - 1].path}`;
+      else if (event.key === 'n') {
+        // Chain-loading: once the current doc is complete, n jumps to the
+        // next unread doc; otherwise it's plain next-file.
+        const target = filesState.current[path]?.completed
+          ? nextUnread(docs, filesState.current, index)
+          : docs[index + 1];
+        if (target) location.hash = `#/${target.path}`;
+      } else if (event.key === 'p' && index > 0) location.hash = `#/${docs[index - 1].path}`;
       else if (event.key === 't') setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]);
     };
     addEventListener('keydown', onKey);
@@ -311,12 +355,46 @@ export function App() {
   const minutesLeft = doc ? Math.ceil(t.remainingWords() / wpm.current) : 0;
   const readCount = sections.filter((s) => t.progress.get(s.id)?.read).length;
 
+  // Folder rollup + completion chaining
+  const fileStateOf = (path: string) => filesState.current[path];
+  const doneCount = docs.filter((d) => fileStateOf(d.path)?.completed).length;
+  const folderMinutesLeft = Math.ceil(
+    docs.reduce((sum, d) => {
+      const st = fileStateOf(d.path);
+      if (st?.completed) return sum;
+      const remaining = Math.max(0, d.wordCount - (st?.readWords ?? 0));
+      return sum + remaining;
+    }, 0) / wpm.current,
+  );
+  const activeIndex = docs.findIndex((d) => d.path === active);
+  const nextUp = justCompleted ? nextUnread(docs, filesState.current, activeIndex) : undefined;
+
+  const badgeFor = (entry: DocEntry) => {
+    if (entry.path === active && doc) {
+      // Live values for the open doc, not the last-persisted snapshot.
+      if (t.allRead()) return <span class="file-state done">✓</span>;
+      const words = t.readWords();
+      if (words > 0) return <span class="file-state pct">{Math.min(99, Math.round((words / Math.max(1, doc.wordCount)) * 100))}%</span>;
+      return <span class="file-state dot" />;
+    }
+    const st = fileStateOf(entry.path);
+    if (st?.completed) return <span class="file-state done">✓</span>;
+    if (st?.readWords) return <span class="file-state pct">{Math.min(99, Math.round((st.readWords / Math.max(1, entry.wordCount)) * 100))}%</span>;
+    return <span class="file-state dot" />;
+  };
+
   return (
     <div class="layout">
       <aside class="sidebar">
         <header class="brand">
           <span class="brand-mark">mark</span>read
         </header>
+        {docs.length > 0 && (
+          <div class="folder-rollup">
+            {doneCount}/{docs.length} read
+            {folderMinutesLeft > 0 && <span> · ~{folderMinutesLeft} min left</span>}
+          </div>
+        )}
         <nav class="file-list">
           {docs.map((entry) => (
             <a
@@ -324,8 +402,11 @@ export function App() {
               href={`#/${entry.path}`}
               class={`file-link ${entry.path === active ? 'active' : ''}`}
             >
-              {entry.dir && <span class="file-dir">{entry.dir}/</span>}
-              <span class="file-name">{entry.name}</span>
+              <span class="file-label">
+                {entry.dir && <span class="file-dir">{entry.dir}/</span>}
+                <span class="file-name">{entry.name}</span>
+              </span>
+              {badgeFor(entry)}
             </a>
           ))}
         </nav>
@@ -336,7 +417,7 @@ export function App() {
       </aside>
 
       {doc && sections.length > 0 && (
-        <div class="progress-bar" aria-hidden="true">
+        <div class={`progress-bar ${justCompleted ? 'complete' : ''}`} aria-hidden="true">
           {sections.map((s) => {
             const p = t.progress.get(s.id);
             const fill = p?.read ? 100 : Math.min(96, ((p?.dwellMs ?? 0) / t.expectedMs(s)) * 100);
@@ -362,6 +443,16 @@ export function App() {
             {resumeTop !== null && (
               <div class="resume-marker" style={{ top: `${resumeTop}px` }}>
                 <span>you were here</span>
+              </div>
+            )}
+            {justCompleted && (
+              <div class="complete-pill">
+                <span class="complete-check">✓</span> document complete
+                {nextUp && (
+                  <span class="complete-next">
+                    · <kbd>n</kbd> next: {nextUp.name} (~{Math.max(1, Math.round((nextUp.wordCount - (fileStateOf(nextUp.path)?.readWords ?? 0)) / wpm.current))} min)
+                  </span>
+                )}
               </div>
             )}
           </>

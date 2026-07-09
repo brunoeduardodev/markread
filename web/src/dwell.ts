@@ -13,7 +13,12 @@ export interface SectionMeta {
 export interface SectionProgress {
   dwellMs: number;
   read: boolean;
+  /** Whether this section already contributed a WPM calibration sample. */
+  sampled?: boolean;
 }
+
+/** Sections below this size are too noisy to calibrate reading speed from. */
+const MIN_SAMPLE_WORDS = 80;
 
 interface SectionBounds {
   id: string;
@@ -34,8 +39,11 @@ export class DwellTracker {
   progress = new Map<string, SectionProgress>();
   wpm = 238;
   dirty = false;
+  private lastVisible = new Set<string>();
   onRead: (id: string) => void = () => {};
   onTick: () => void = () => {};
+  /** Fired with an observed words-per-minute when a read section scrolls away. */
+  onSample: (wpm: number) => void = () => {};
 
   expectedMs(section: SectionMeta): number {
     return Math.max(MIN_READ_MS, (section.wordCount / this.wpm) * 60_000 * READ_THRESHOLD);
@@ -85,9 +93,11 @@ export class DwellTracker {
       const bandTop = window.scrollY + window.innerHeight * 0.1;
       const bandBottom = window.scrollY + window.innerHeight * 0.85;
       let changed = false;
+      const visible = new Set<string>();
 
       for (const b of this.bounds) {
         if (b.bottom < bandTop || b.top > bandBottom) continue;
+        visible.add(b.id);
         const section = this.sections.find((s) => s.id === b.id);
         const p = this.progress.get(b.id);
         if (!section || !p) continue;
@@ -99,6 +109,21 @@ export class DwellTracker {
           this.onRead(b.id);
         }
       }
+
+      // A read section leaving the viewport yields a calibration sample:
+      // its full dwell time over its word count is an honest observed pace.
+      for (const id of this.lastVisible) {
+        if (visible.has(id)) continue;
+        const section = this.sections.find((s) => s.id === id);
+        const p = this.progress.get(id);
+        if (!section || !p || !p.read || p.sampled) continue;
+        if (section.wordCount < MIN_SAMPLE_WORDS) continue;
+        p.sampled = true;
+        this.dirty = true;
+        this.onSample(section.wordCount / (p.dwellMs / 60_000));
+      }
+      this.lastVisible = visible;
+
       if (changed) this.onTick();
     }, TICK_MS);
   }
@@ -111,6 +136,18 @@ export class DwellTracker {
   /** Serializable snapshot for persistence. */
   snapshot(): Record<string, SectionProgress> {
     return Object.fromEntries(this.progress);
+  }
+
+  /** Words in sections marked read. */
+  readWords(): number {
+    return this.sections.reduce(
+      (sum, s) => sum + (this.progress.get(s.id)?.read ? s.wordCount : 0),
+      0,
+    );
+  }
+
+  allRead(): boolean {
+    return this.sections.length > 0 && this.sections.every((s) => this.progress.get(s.id)?.read);
   }
 
   /** Words not yet read, with partial credit for dwell in progress. */

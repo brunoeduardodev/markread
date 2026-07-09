@@ -110,7 +110,7 @@ export function renderDoc(source: string, fileName: string): RenderedDoc {
   return { html, headings, wordCount, title };
 }
 
-function countWords(source: string): number {
+export function countWords(source: string): number {
   // Strip code blocks so a code-heavy doc doesn't inflate the reading estimate.
   const prose = source.replace(/```[\s\S]*?```/g, ' ');
   return (prose.match(/\S+/g) ?? []).length;

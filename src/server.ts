@@ -8,8 +8,8 @@ import { serve } from '@hono/node-server';
 import { WebSocketServer, WebSocket } from 'ws';
 import chokidar from 'chokidar';
 import { scanDocs, isMarkdown } from './scan.js';
-import { initRenderer, renderDoc } from './render.js';
-import { loadState, getRootFiles, patchFileState, flushState } from './state.js';
+import { initRenderer, renderDoc, countWords } from './render.js';
+import { loadState, getRootFiles, patchFileState, flushState, addWpmSample } from './state.js';
 
 /** Brysbaert 2019 meta-analysis: adult silent reading, non-fiction. */
 const WPM_DEFAULT = 238;
@@ -40,7 +40,18 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
 
   app.get('/api/tree', async (c) => {
     const docs = await scanDocs(root);
-    return c.json({ root, docs });
+    // Word counts power the sidebar's folder rollup ("~42 min left").
+    const withCounts = await Promise.all(
+      docs.map(async (d) => {
+        try {
+          const wordCount = countWords(await readFile(resolve(root, d.path), 'utf8'));
+          return { ...d, wordCount };
+        } catch {
+          return { ...d, wordCount: 0 };
+        }
+      }),
+    );
+    return c.json({ root, docs: withCounts, wpm: appState.wpm });
   });
 
   // Reading state: everything the progress system knows about this root.
@@ -58,9 +69,14 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
       sections: body.sections,
       completed: body.completed,
       wordCount: body.wordCount,
+      readWords: typeof body.readWords === 'number' ? body.readWords : undefined,
       lastOpenedAt: Date.now(),
     });
-    return c.json(file);
+    let wpm: number | undefined;
+    if (Array.isArray(body.wpmSamples)) {
+      for (const sample of body.wpmSamples) wpm = addWpmSample(Number(sample));
+    }
+    return c.json({ ...file, wpm });
   });
 
   app.get('/api/doc', async (c) => {
