@@ -20,6 +20,11 @@ export interface SectionProgress {
 /** Sections below this size are too noisy to calibrate reading speed from. */
 const MIN_SAMPLE_WORDS = 80;
 
+/** Sections with fewer words than this are structural containers (an h2
+    whose prose lives in child h3s) — they earn their tick by being passed,
+    not dwelled, since their own pixel range is a sliver. */
+const CONTAINER_MAX_WORDS = 15;
+
 interface SectionBounds {
   id: string;
   top: number;
@@ -89,6 +94,9 @@ export class DwellTracker {
     this.stop();
     this.timer = setInterval(() => {
       if (document.hidden) return;
+      // Layout shifts (webfont load, live reload) must never strand a
+      // section on stale geometry — re-measure every tick; it's cheap.
+      this.measure();
       // Credit dwell to sections overlapping the middle band of the viewport.
       const bandTop = window.scrollY + window.innerHeight * 0.1;
       const bandBottom = window.scrollY + window.innerHeight * 0.85;
@@ -108,6 +116,19 @@ export class DwellTracker {
           p.read = true;
           this.onRead(b.id);
         }
+      }
+
+      // Structural containers tick once the reading line has passed them.
+      const line = window.scrollY + window.innerHeight * 0.3;
+      for (const b of this.bounds) {
+        if (b.bottom > line) continue;
+        const section = this.sections.find((s) => s.id === b.id);
+        const p = this.progress.get(b.id);
+        if (!section || !p || p.read || section.wordCount >= CONTAINER_MAX_WORDS) continue;
+        p.read = true;
+        this.dirty = true;
+        changed = true;
+        this.onRead(b.id);
       }
 
       // A read section leaving the viewport yields a calibration sample:
