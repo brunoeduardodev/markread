@@ -9,6 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import chokidar from 'chokidar';
 import { scanDocs, isMarkdown } from './scan.js';
 import { initRenderer, renderDoc } from './render.js';
+import { loadState, getRootFiles, patchFileState, flushState } from './state.js';
 
 /** Brysbaert 2019 meta-analysis: adult silent reading, non-fiction. */
 const WPM_DEFAULT = 238;
@@ -32,6 +33,7 @@ export interface MarkreadServer {
 
 export async function startServer(root: string, port: number): Promise<MarkreadServer> {
   await initRenderer();
+  const appState = await loadState();
 
   const app = new Hono();
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'web');
@@ -39,6 +41,26 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
   app.get('/api/tree', async (c) => {
     const docs = await scanDocs(root);
     return c.json({ root, docs });
+  });
+
+  // Reading state: everything the progress system knows about this root.
+  app.get('/api/state', (c) => {
+    return c.json({ wpm: appState.wpm, settings: appState.settings, files: getRootFiles(root) });
+  });
+
+  // Progress updates from the reader (debounced client-side; also sendBeacon
+  // on pagehide, which arrives as a POST with no content-type).
+  app.post('/api/state/file', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.path !== 'string') return c.json({ error: 'bad request' }, 400);
+    const file = patchFileState(root, body.path, {
+      scrollY: typeof body.scrollY === 'number' ? body.scrollY : undefined,
+      sections: body.sections,
+      completed: body.completed,
+      wordCount: body.wordCount,
+      lastOpenedAt: Date.now(),
+    });
+    return c.json(file);
   });
 
   app.get('/api/doc', async (c) => {
@@ -67,7 +89,13 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
     const file = existsSync(safe) && extname(safe) ? safe : join(webRoot, 'index.html');
     try {
       const body = await readFile(file);
-      return c.body(body, 200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
+      // Vite assets are content-hashed (immutable); index.html must revalidate
+      // or the browser serves a stale bundle after an upgrade.
+      const cache = file.includes('assets') ? 'public, max-age=31536000, immutable' : 'no-cache';
+      return c.body(body, 200, {
+        'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+        'cache-control': cache,
+      });
     } catch {
       return c.text('markread: web assets missing — run `npm run build`', 500);
     }
@@ -99,6 +127,7 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
   return {
     port,
     close: async () => {
+      await flushState();
       await watcher.close();
       wss.close();
       server.close();

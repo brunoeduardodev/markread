@@ -19,6 +19,8 @@ export interface Heading {
   level: number;
   text: string;
   id: string;
+  /** Words from this heading until the next heading (level ≤ 3). */
+  wordCount: number;
 }
 
 export interface RenderedDoc {
@@ -73,17 +75,34 @@ export function renderDoc(source: string, fileName: string): RenderedDoc {
   const tokens = md.parse(source, env);
   const html = md.renderer.render(tokens, md.options, env);
 
-  // Extract heading outline from the parsed tokens (anchor plugin has set ids).
+  // Extract heading outline from the parsed tokens (anchor plugin has set ids)
+  // and attribute prose word counts to the section each word falls under.
+  // Sections are bounded by headings of level ≤ 3; deeper headings fold into
+  // their parent section.
   const headings: Heading[] = [];
+  let inHeading = false;
+  let currentSection: Heading | undefined;
+  let preambleWords = 0;
+
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.type === 'heading_open') {
+      inHeading = true;
       const level = Number(token.tag.slice(1));
-      const inline = tokens[i + 1];
-      const text = inline?.content ?? '';
-      headings.push({ level, text, id: token.attrGet('id') ?? slugify(text) });
+      const text = tokens[i + 1]?.content ?? '';
+      const heading: Heading = { level, text, id: token.attrGet('id') ?? slugify(text), wordCount: 0 };
+      headings.push(heading);
+      if (level <= 3) currentSection = heading;
+    } else if (token.type === 'heading_close') {
+      inHeading = false;
+    } else if (!inHeading && token.type === 'inline' && token.content) {
+      const words = (token.content.match(/\S+/g) ?? []).length;
+      if (currentSection) currentSection.wordCount += words;
+      else preambleWords += words;
     }
   }
+  // Prose before the first heading belongs to the first section.
+  if (headings.length > 0) headings[0].wordCount += preambleWords;
 
   const wordCount = countWords(source);
   const title = headings.find((h) => h.level === 1)?.text ?? fileName.replace(/\.(md|markdown)$/i, '');

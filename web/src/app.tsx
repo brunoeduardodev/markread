@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
+import { DwellTracker, type SectionMeta, type SectionProgress } from './dwell.js';
 
 interface DocEntry {
   path: string;
@@ -6,13 +7,26 @@ interface DocEntry {
   dir: string;
 }
 
+interface Heading {
+  level: number;
+  text: string;
+  id: string;
+  wordCount: number;
+}
+
 interface Doc {
   path: string;
   html: string;
-  headings: { level: number; text: string; id: string }[];
+  headings: Heading[];
   wordCount: number;
   minutes: number;
   title: string;
+}
+
+interface FileState {
+  scrollY: number;
+  sections: Record<string, SectionProgress>;
+  completed: boolean;
 }
 
 const THEMES = ['light', 'vesper', 'tokyo-night'] as const;
@@ -33,6 +47,9 @@ function currentHashPath(): string {
  * eases toward it (fixed fraction of remaining distance per frame).
  * Repeated/held keys extend the target instead of restarting an animation.
  */
+// We own scroll restoration: resume comes from reading state, not the browser.
+history.scrollRestoration = 'manual';
+
 const scroller = { target: 0, active: false };
 
 // The mouse always wins: any real scroll input cancels the keyboard glide,
@@ -62,12 +79,56 @@ function smoothScrollBy(delta: number) {
   requestAnimationFrame(step);
 }
 
+/** Sections that participate in progress: bounded at heading level ≤ 3. */
+const progressSections = (doc: Doc): SectionMeta[] =>
+  doc.headings.filter((h) => h.level <= 3);
+
+const PERSIST_INTERVAL_MS = 3000;
+
 export function App() {
   const [docs, setDocs] = useState<DocEntry[]>([]);
   const [doc, setDoc] = useState<Doc | null>(null);
   const [active, setActive] = useState<string>(currentHashPath());
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const contentRef = useRef<HTMLElement>(null);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [resumeTop, setResumeTop] = useState<number | null>(null);
+  // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
+  const [, setProgressVersion] = useState(0);
+
+  const tracker = useRef(new DwellTracker());
+  const filesState = useRef<Record<string, FileState>>({});
+  const wpm = useRef(238);
+  const docRef = useRef<Doc | null>(null);
+  // Resolves once /api/state has been loaded — loadDoc must wait for it,
+  // otherwise resume races the state fetch and silently restores to 0.
+  const stateReady = useRef<Promise<void> | null>(null);
+
+  const persistProgress = useCallback((path: string, useBeacon = false) => {
+    const t = tracker.current;
+    if (!path || !docRef.current) return;
+    const payload = JSON.stringify({
+      path,
+      scrollY: Math.round(window.scrollY),
+      sections: t.snapshot(),
+      wordCount: docRef.current.wordCount,
+    });
+    t.dirty = false;
+    if (useBeacon) {
+      navigator.sendBeacon('/api/state/file', new Blob([payload], { type: 'application/json' }));
+    } else {
+      fetch('/api/state/file', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: payload,
+      }).catch(() => {});
+    }
+    // Keep the local mirror fresh so doc switches resume correctly.
+    filesState.current[path] = {
+      scrollY: Math.round(window.scrollY),
+      sections: t.snapshot(),
+      completed: filesState.current[path]?.completed ?? false,
+    };
+  }, []);
 
   const loadTree = useCallback(async () => {
     const res = await fetch('/api/tree');
@@ -77,12 +138,33 @@ export function App() {
 
   const loadDoc = useCallback(async (path: string, preserveScroll = false) => {
     if (!path) return;
-    const scrollY = preserveScroll ? window.scrollY : 0;
+    const scrollBefore = window.scrollY;
+    await stateReady.current;
     const res = await fetch(`/api/doc?path=${encodeURIComponent(path)}`);
     if (!res.ok) return;
     const data: Doc = await res.json();
     setDoc(data);
-    requestAnimationFrame(() => window.scrollTo(0, scrollY));
+    docRef.current = data;
+    setResumeTop(null);
+
+    requestAnimationFrame(() => {
+      const saved = filesState.current[path];
+      const target = preserveScroll ? scrollBefore : (saved?.scrollY ?? 0);
+      window.scrollTo({ top: target, behavior: 'instant' });
+
+      const t = tracker.current;
+      t.wpm = wpm.current;
+      t.setDoc(progressSections(data), saved?.sections ?? {});
+      t.start();
+      setActiveSection(t.currentSectionId());
+      setProgressVersion((v) => v + 1);
+
+      // Re-entry cue: a fading "you were here" line at the resume point.
+      if (!preserveScroll && target > 400) {
+        setResumeTop(target + 32);
+        setTimeout(() => setResumeTop(null), 4000);
+      }
+    });
   }, []);
 
   // Theme
@@ -91,9 +173,18 @@ export function App() {
     localStorage.setItem('markread:theme', theme);
   }, [theme]);
 
-  // Initial load + hash routing
+  // Initial load: tree + reading state. loadDoc awaits stateReady, so the
+  // first document render always sees persisted progress.
   useEffect(() => {
+    stateReady.current = fetch('/api/state')
+      .then((r) => r.json())
+      .then((stateRes) => {
+        filesState.current = stateRes.files ?? {};
+        wpm.current = stateRes.wpm ?? 238;
+      })
+      .catch(() => {});
     loadTree();
+
     const onHash = () => setActive(currentHashPath());
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
@@ -108,8 +199,55 @@ export function App() {
   }, [docs, active]);
 
   useEffect(() => {
+    // Flush the doc we're leaving before loading the next one.
+    return () => {
+      if (docRef.current) persistProgress(docRef.current.path);
+    };
+  }, [active, persistProgress]);
+
+  useEffect(() => {
     loadDoc(active);
   }, [active, loadDoc]);
+
+  // Progress persistence: periodic while dirty, and on tab close.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (tracker.current.dirty && docRef.current) persistProgress(docRef.current.path);
+    }, PERSIST_INTERVAL_MS);
+    const onPageHide = () => docRef.current && persistProgress(docRef.current.path, true);
+    addEventListener('pagehide', onPageHide);
+    return () => {
+      clearInterval(interval);
+      removeEventListener('pagehide', onPageHide);
+    };
+  }, [persistProgress]);
+
+  // Dwell → UI updates
+  useEffect(() => {
+    const t = tracker.current;
+    t.onTick = () => setProgressVersion((v) => v + 1);
+    t.onRead = () => setProgressVersion((v) => v + 1);
+    return () => t.stop();
+  }, []);
+
+  // Scroll-spy + section re-measure on resize
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setActiveSection(tracker.current.currentSectionId()));
+    };
+    const onResize = () => {
+      tracker.current.measure();
+      onScroll();
+    };
+    addEventListener('scroll', onScroll, { passive: true });
+    addEventListener('resize', onResize);
+    return () => {
+      removeEventListener('scroll', onScroll);
+      removeEventListener('resize', onResize);
+    };
+  }, []);
 
   // Live reload over WebSocket
   useEffect(() => {
@@ -136,6 +274,17 @@ export function App() {
     };
   }, [loadDoc, loadTree]);
 
+  // In-document anchor links (footnotes, etc.) scroll instead of breaking
+  // the #/file hash routing.
+  const onArticleClick = useCallback((event: MouseEvent) => {
+    const anchor = (event.target as HTMLElement).closest('a');
+    const href = anchor?.getAttribute('href');
+    if (href?.startsWith('#') && !href.startsWith('#/')) {
+      event.preventDefault();
+      document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
+
   // Keyboard: j/k scroll · n/p file nav · t theme
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -153,6 +302,14 @@ export function App() {
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
   }, [docs]);
+
+  const t = tracker.current;
+  const sections = doc ? progressSections(doc) : [];
+  const tocSections = sections.filter((s) => s.level >= 2).length > 0
+    ? sections.filter((s) => s.level >= 2)
+    : sections;
+  const minutesLeft = doc ? Math.ceil(t.remainingWords() / wpm.current) : 0;
+  const readCount = sections.filter((s) => t.progress.get(s.id)?.read).length;
 
   return (
     <div class="layout">
@@ -178,19 +335,35 @@ export function App() {
         </footer>
       </aside>
 
+      {doc && sections.length > 0 && (
+        <div class="progress-bar" aria-hidden="true">
+          {sections.map((s) => {
+            const p = t.progress.get(s.id);
+            const fill = p?.read ? 100 : Math.min(96, ((p?.dwellMs ?? 0) / t.expectedMs(s)) * 100);
+            return (
+              <div key={s.id} class="progress-segment" style={{ flexGrow: Math.max(1, s.wordCount) }}>
+                <div class={`progress-fill ${p?.read ? 'read' : ''}`} style={{ width: `${fill}%` }} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <main class="reading-pane">
         {doc ? (
           <>
             <div class="doc-meta">
               <span class="doc-path">{doc.path}</span>
-              <span class="doc-minutes">~{doc.minutes} min</span>
+              <span class="doc-minutes">
+                {minutesLeft <= 0 ? 'done' : `~${minutesLeft} min left`}
+              </span>
             </div>
-            <article
-              ref={contentRef}
-              class="doc-content"
-              // Server renders with html:false — markdown-it output only, no raw HTML passthrough.
-              dangerouslySetInnerHTML={{ __html: doc.html }}
-            />
+            <article class="doc-content" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: doc.html }} />
+            {resumeTop !== null && (
+              <div class="resume-marker" style={{ top: `${resumeTop}px` }}>
+                <span>you were here</span>
+              </div>
+            )}
           </>
         ) : (
           <div class="empty-state">
@@ -198,6 +371,31 @@ export function App() {
           </div>
         )}
       </main>
+
+      {doc && tocSections.length > 0 && (
+        <nav class="toc">
+          <div class="toc-header">
+            {readCount}/{sections.length} sections
+          </div>
+          {tocSections.map((s) => {
+            const p = t.progress.get(s.id);
+            return (
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' });
+                }}
+              >
+                <span class="toc-tick" />
+                <span class="toc-text">{s.text}</span>
+              </a>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@
   --body-leading: 1.6;
 
   --sidebar-width: 17rem;
+  --toc-width: 15rem;
 }
 
 /* Vesper — near-black monochrome with the signature peach.
@@ -115,7 +116,9 @@ body,
 
 .reading-pane {
   flex: 1;
+  position: relative;
   margin-left: var(--sidebar-width);
+  margin-right: var(--toc-width);
   padding: 4rem 3rem 8rem;
   display: flex;
   flex-direction: column;
@@ -188,6 +191,149 @@ body,
 
 ::selection {
   background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* --- Progress bar (goal gradient: one segment per section) ------------------- */
+
+.progress-bar {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-width);
+  right: var(--toc-width);
+  z-index: 10;
+  display: flex;
+  gap: 3px;
+  height: 4px;
+  padding: 0 1px;
+}
+
+.progress-segment {
+  flex-basis: 0;
+  background: color-mix(in srgb, var(--rule) 70%, transparent);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: width 900ms ease;
+}
+
+.progress-fill.read {
+  background: var(--accent);
+}
+
+/* --- TOC quest log ------------------------------------------------------------ */
+
+.toc {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: var(--toc-width);
+  padding: 3.5rem 1.25rem 2rem 0.5rem;
+  overflow-y: auto;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.toc-header {
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+}
+
+.toc-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55em;
+  padding: 0.28rem 0;
+  color: var(--ink-faint);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+.toc-item.level-3 {
+  padding-left: 1.1em;
+}
+
+.toc-item:hover {
+  color: var(--ink);
+}
+
+.toc-item.active {
+  color: var(--ink);
+}
+
+.toc-item.read {
+  color: var(--ink-soft);
+}
+
+.toc-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The tick: hollow circle → filled accent dot with a small pop. */
+.toc-tick {
+  flex: none;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  border: 1.5px solid var(--ink-faint);
+  transform: translateY(-0.05em);
+  transition: background 250ms ease, border-color 250ms ease, transform 250ms ease;
+}
+
+.toc-item.active .toc-tick {
+  border-color: var(--accent);
+}
+
+.toc-item.read .toc-tick {
+  background: var(--accent);
+  border-color: var(--accent);
+  animation: tick-pop 350ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+@keyframes tick-pop {
+  0% { transform: translateY(-0.05em) scale(0.6); }
+  60% { transform: translateY(-0.05em) scale(1.45); }
+  100% { transform: translateY(-0.05em) scale(1); }
+}
+
+/* --- Resume marker ("you were here") ------------------------------------------- */
+
+.resume-marker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  pointer-events: none;
+  animation: resume-fade 4s ease forwards;
+}
+
+.resume-marker::before,
+.resume-marker::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.resume-marker span {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+@keyframes resume-fade {
+  0%, 60% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* --- Doc meta bar --------------------------------------------------------- */
@@ -417,6 +563,18 @@ body,
 
 /* --- Small screens ------------------------------------------------------------ */
 
+@media (max-width: 1180px) {
+  .toc {
+    display: none;
+  }
+  .reading-pane {
+    margin-right: 0;
+  }
+  .progress-bar {
+    right: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .sidebar {
     display: none;
@@ -424,5 +582,8 @@ body,
   .reading-pane {
     margin-left: 0;
     padding: 2rem 1.25rem 6rem;
+  }
+  .progress-bar {
+    left: 0;
   }
 }
