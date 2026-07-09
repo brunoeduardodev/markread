@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
-import { DwellTracker, type SectionMeta, type SectionProgress } from './dwell.js';
+import { ProgressTracker, type SectionMeta, type SectionProgress } from './progress.js';
 
 interface DocEntry {
   path: string;
@@ -111,7 +111,9 @@ export function App() {
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
 
-  const tracker = useRef(new DwellTracker());
+  const tracker = useRef(new ProgressTracker());
+  // Dev affordance: inspectable from the browser console.
+  (window as unknown as { __markread: ProgressTracker }).__markread = tracker.current;
   const filesState = useRef<Record<string, FileState>>({});
   const wpm = useRef(238);
   const docRef = useRef<Doc | null>(null);
@@ -420,7 +422,7 @@ export function App() {
         <div class={`progress-bar ${justCompleted ? 'complete' : ''}`} aria-hidden="true">
           {sections.map((s) => {
             const p = t.progress.get(s.id);
-            const fill = p?.read ? 100 : Math.min(96, ((p?.dwellMs ?? 0) / t.expectedMs(s)) * 100);
+            const fill = t.fillFraction(s.id) * 100;
             return (
               <div key={s.id} class="progress-segment" style={{ flexGrow: Math.max(1, s.wordCount) }}>
                 <div class={`progress-fill ${p?.read ? 'read' : ''}`} style={{ width: `${fill}%` }} />

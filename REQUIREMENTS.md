@@ -28,7 +28,7 @@ mdr [path]           # default: cwd
 
 ## Design principles (evidence-informed, binding)
 
-1. **Reward reading, not scrolling** — progress is dwell-based (time-in-viewport ≈ plausible for section word count), never scroll position.
+1. **Progress is scroll-driven and predictable** — the reading line (80% down the viewport) leaves a high-water mark; a section is read when the line passes its end, the current section fills proportionally, and nothing grows while you sit still. (Dwell-based tracking was tried and rejected: multiple sections growing at once, and growth while idle, felt broken.)
 2. **Rewards immediate, concrete, truthful** — every reward represents real reading done. No XP, points, levels, or leaderboards (abstract rewards demotivate the target audience — RESEARCH.md Round D).
 3. **Celebrations ≤ 400 ms, non-blocking** — never a modal, never interrupts.
 4. **Never punish** — no decay, no shame states, no "streak lost" red.
@@ -74,7 +74,7 @@ mdr [path]           # default: cwd
 
 ### 5. Progress system (the differentiator)
 - **Section chunking** by `h2`/`h3`
-- **Dwell-based section ticks**: hollow circle → filled tick in TOC when section is plausibly read
+- **Scroll-driven section ticks**: hollow circle → filled tick in TOC when the reading line passes the section's end
 - **Segmented progress bar**: one segment per section (goal-gradient: many small finish lines)
 - **Time-left**: per section + per document; default 238 wpm, calibrated per user from observed reading speed
 - **Furthest-read breadcrumb** in margin; **instant resume** to exact position on reopen
