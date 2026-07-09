@@ -108,6 +108,7 @@ export function App() {
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [resumeTop, setResumeTop] = useState<number | null>(null);
   const [justCompleted, setJustCompleted] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
 
@@ -177,6 +178,7 @@ export function App() {
     docRef.current = data;
     setResumeTop(null);
     setJustCompleted(false);
+    setConfirmReset(false);
 
     requestAnimationFrame(() => {
       const saved = filesState.current[path];
@@ -197,6 +199,30 @@ export function App() {
       }
     });
   }, []);
+
+  // Start over on the open document: forget server state, jump to the top,
+  // and re-seed the tracker as if the doc had never been opened.
+  const resetProgress = useCallback(async () => {
+    const current = docRef.current;
+    if (!current) return;
+    await fetch(`/api/state/file?path=${encodeURIComponent(current.path)}`, {
+      method: 'DELETE',
+    }).catch(() => {});
+    delete filesState.current[current.path];
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    tracker.current.setDoc(progressSections(current), {});
+    setJustCompleted(false);
+    setConfirmReset(false);
+    setActiveSection(tracker.current.currentSectionId());
+    setProgressVersion((v) => v + 1);
+  }, []);
+
+  // The confirm state reverts on its own if the second click never comes.
+  useEffect(() => {
+    if (!confirmReset) return;
+    const timer = setTimeout(() => setConfirmReset(false), 2500);
+    return () => clearTimeout(timer);
+  }, [confirmReset]);
 
   // Theme
   useEffect(() => {
@@ -437,8 +463,17 @@ export function App() {
           <>
             <div class="doc-meta">
               <span class="doc-path">{doc.path}</span>
-              <span class="doc-minutes">
-                {minutesLeft <= 0 ? 'done' : `~${minutesLeft} min left`}
+              <span class="doc-meta-right">
+                <span class="doc-minutes">
+                  {minutesLeft <= 0 ? 'done' : `~${minutesLeft} min left`}
+                </span>
+                <button
+                  class={`doc-reset ${confirmReset ? 'confirm' : ''}`}
+                  title="Reset reading progress"
+                  onClick={() => (confirmReset ? resetProgress() : setConfirmReset(true))}
+                >
+                  {confirmReset ? 'reset progress?' : '↺'}
+                </button>
               </span>
             </div>
             <article class="doc-content" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: doc.html }} />

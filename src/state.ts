@@ -102,6 +102,16 @@ export function patchFileState(
   return file;
 }
 
+/** Forget everything about one file — its progress starts over. */
+export function resetFileState(root: string, path: string): void {
+  if (!state) throw new Error('state not loaded');
+  const rootState = state.roots[root];
+  if (rootState?.files[path]) {
+    delete rootState.files[path];
+    schedulePersist();
+  }
+}
+
 /** Feed an observed reading-speed sample; wpm becomes the median of the
     last 50 samples, clamped to a sane human range. */
 export function addWpmSample(sample: number): number {
