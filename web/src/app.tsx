@@ -122,8 +122,13 @@ const scroller = { target: 0, active: false };
 // The mouse always wins: any real scroll input cancels the keyboard glide,
 // otherwise the rAF loop fights the wheel and drags the page back.
 for (const cancelEvent of ['wheel', 'touchstart'] as const) {
-  addEventListener(cancelEvent, () => (scroller.active = false), { passive: true });
+  addEventListener(cancelEvent, () => {
+    scroller.active = false;
+    stopSlide();
+  }, { passive: true });
 }
+// A slide must never outlive its keypress (e.g. tab switch mid-hold).
+addEventListener('blur', () => stopSlide());
 
 function runGlide() {
   scroller.active = true;
@@ -147,6 +152,36 @@ function smoothScrollBy(delta: number) {
   scroller.target = Math.max(0, Math.min(maxScroll, scroller.target + delta));
   if (scroller.active) return;
   runGlide();
+}
+
+/**
+ * j/k slide: hold to scroll at a constant, followable velocity — text flows
+ * through the reading ruler instead of hopping past it. Release to stop.
+ * A quick tap moves about a line.
+ */
+const SLIDE_PX_PER_S = 170;
+const slide = { dir: 0 as -1 | 0 | 1, raf: 0, lastT: 0 };
+
+function startSlide(dir: -1 | 1) {
+  if (slide.dir === dir) return; // key repeat
+  const wasIdle = slide.dir === 0;
+  slide.dir = dir;
+  if (!wasIdle) return; // direction change mid-slide: just steer
+  scroller.active = false; // a slide supersedes any pending glide
+  slide.lastT = performance.now();
+  const step = (t: number) => {
+    if (slide.dir === 0) return;
+    const dt = Math.min(64, t - slide.lastT) / 1000; // clamp tab-jank spikes
+    slide.lastT = t;
+    window.scrollBy({ top: slide.dir * SLIDE_PX_PER_S * dt, behavior: 'instant' });
+    slide.raf = requestAnimationFrame(step);
+  };
+  slide.raf = requestAnimationFrame(step);
+}
+
+function stopSlide() {
+  slide.dir = 0;
+  cancelAnimationFrame(slide.raf);
 }
 
 /** Glide straight to an absolute position (used by g/G). */
@@ -217,6 +252,7 @@ export function App() {
   const [folderClear, setFolderClear] = useState<string | null>(null);
   // State, not an imperative class — re-renders would clobber the latter.
   const [nextUpId, setNextUpId] = useState<string | null>(null);
+  const [ringPulse, setRingPulse] = useState(false);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
   // Focus mode: 0 off, 1 focus (chrome hidden), 2 focus+dim. Ephemeral.
@@ -245,8 +281,11 @@ export function App() {
   const sessionCompletions = useRef(0);
   const lastCueAt = useRef(0);
   const prevDoneCount = useRef(-1);
-  const halfwayShown = useRef(false);
   const folderClearShown = useRef(false);
+  // Milestone celebrations: long docs (>20 min) every 10%, short docs at
+  // quarters. 100% belongs to the completion pill, not this system.
+  const milestoneMarks = useRef<number[]>([]);
+  const milestonesShown = useRef<Set<number>>(new Set());
   const metaFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // Sections auto-passed while a doc is being (re)initialized aren't earned —
   // no cues for them, and no budget drain either.
@@ -339,8 +378,10 @@ export function App() {
       t.setDoc(progressSections(data), saved?.sections ?? {});
       suppressCues.current = false;
       t.start();
-      // Docs resumed past their midpoint shouldn't whisper "halfway".
-      halfwayShown.current = t.passedWords() / Math.max(1, data.wordCount) >= 0.5;
+      // Milestones already behind the resume point don't re-celebrate.
+      const pctAtLoad = (t.passedWords() / Math.max(1, data.wordCount)) * 100;
+      milestoneMarks.current = data.minutes > 20 ? [10, 20, 30, 40, 50, 60, 70, 80, 90] : [25, 50, 75];
+      milestonesShown.current = new Set(milestoneMarks.current.filter((m) => pctAtLoad >= m));
       setActiveSection(t.currentSectionId());
       setProgressVersion((v) => v + 1);
 
@@ -365,6 +406,8 @@ export function App() {
     suppressCues.current = true;
     tracker.current.setDoc(progressSections(current), {});
     suppressCues.current = false;
+    const pctAtReset = (tracker.current.passedWords() / Math.max(1, current.wordCount)) * 100;
+    milestonesShown.current = new Set(milestoneMarks.current.filter((m) => pctAtReset >= m));
     setJustCompleted(false);
     setConfirmReset(false);
     setActiveSection(tracker.current.currentSectionId());
@@ -495,14 +538,26 @@ export function App() {
     const t = tracker.current;
     t.onTick = () => {
       setProgressVersion((v) => v + 1);
-      // Halfway whisper — long docs only, once per doc, budgeted.
+      // Milestone celebrations — every unshown mark behind the line is
+      // marked, but only the furthest one celebrates (budgeted).
       const d = docRef.current;
-      if (d && d.minutes >= 15 && !halfwayShown.current) {
-        const fraction = t.passedWords() / Math.max(1, d.wordCount);
-        if (fraction >= 0.5) {
-          halfwayShown.current = true;
-          if (tryCue()) flashMeta('halfway');
+      if (!d) return;
+      const pct = (t.passedWords() / Math.max(1, d.wordCount)) * 100;
+      let crossed: number | undefined;
+      for (const mark of milestoneMarks.current) {
+        if (pct >= mark && !milestonesShown.current.has(mark)) {
+          milestonesShown.current.add(mark);
+          crossed = mark;
         }
+      }
+      // Milestones outrank section deltas: they always celebrate (they're
+      // self-limiting — at most 9 per doc) and claim the cue budget so a
+      // lesser cue can't fire right on their heels.
+      if (crossed !== undefined && !t.allRead() && !suppressCues.current) {
+        lastCueAt.current = performance.now();
+        flashMeta(`${crossed}% ·`);
+        setRingPulse(true);
+        setTimeout(() => setRingPulse(false), 650);
       }
     };
     t.onRead = (id) => {
@@ -604,8 +659,8 @@ export function App() {
 
       const path = currentHashPath();
       const index = docs.findIndex((d) => d.path === path);
-      if (event.key === 'j') smoothScrollBy(90);
-      else if (event.key === 'k') smoothScrollBy(-90);
+      if (event.key === 'j') startSlide(1);
+      else if (event.key === 'k') startSlide(-1);
       else if (event.key === 'n') {
         // Chain-loading: once the current doc is complete, n jumps to the
         // next unread doc; otherwise it's plain next-file.
@@ -644,8 +699,16 @@ export function App() {
         } else if (focusLevel > 0) setFocusLevel(0);
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'j' || event.key === 'k') stopSlide();
+    };
     addEventListener('keydown', onKey);
-    return () => removeEventListener('keydown', onKey);
+    addEventListener('keyup', onKeyUp);
+    return () => {
+      removeEventListener('keydown', onKey);
+      removeEventListener('keyup', onKeyUp);
+      stopSlide();
+    };
   }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen]);
 
   const t = tracker.current;
@@ -670,8 +733,10 @@ export function App() {
   const activeIndex = docs.findIndex((d) => d.path === active);
   const nextUp = justCompleted ? nextUnread(docs, filesState.current, activeIndex) : undefined;
 
-  // Odometer + final-stretch marker
+  // Odometer + final-stretch marker + fill-the-circle ring
   const wordsPassed = doc ? Math.min(doc.wordCount, Math.round(t.passedWords())) : 0;
+  const docFraction = doc ? Math.min(1, t.allRead() ? 1 : wordsPassed / Math.max(1, doc.wordCount)) : 0;
+  const RING_CIRCUMFERENCE = 2 * Math.PI * 17;
   const lastSectionId = sections.length > 0 ? sections[sections.length - 1].id : null;
   const finalStretch =
     !!doc && sections.length > 1 && !t.allRead() && activeSection === lastSectionId;
@@ -843,6 +908,24 @@ export function App() {
             {resumeTop !== null && (
               <div class="resume-marker" style={{ top: `${resumeTop}px` }}>
                 <span>you were here</span>
+              </div>
+            )}
+            {sections.length > 0 && (
+              <div class={`progress-ring ${ringPulse ? 'pulse' : ''} ${t.allRead() ? 'done' : ''}`} aria-hidden="true">
+                <svg viewBox="0 0 40 40">
+                  <circle class="ring-track" cx="20" cy="20" r="17" />
+                  <circle
+                    class="ring-fill"
+                    cx="20"
+                    cy="20"
+                    r="17"
+                    style={{
+                      strokeDasharray: RING_CIRCUMFERENCE,
+                      strokeDashoffset: (1 - docFraction) * RING_CIRCUMFERENCE,
+                    }}
+                  />
+                </svg>
+                <span class="ring-label">{t.allRead() ? '✓' : `${Math.floor(docFraction * 100)}`}</span>
               </div>
             )}
             {justCompleted && (
