@@ -973,14 +973,14 @@ body,
 }
 
 /* The shade band is taller than the bar: it frames a reading chunk
-   (~3 lines), not a single line. */
+   (~6 lines), not a single line. */
 .ruler-shade-above {
   top: 0;
-  height: calc(38vh - 2.4em);
+  height: calc(38vh - 4.8em);
 }
 
 .ruler-shade-below {
-  top: calc(38vh + 2.4em);
+  top: calc(38vh + 4.8em);
   bottom: 0;
 }
 
