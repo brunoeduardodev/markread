@@ -972,13 +972,15 @@ body,
   background: color-mix(in srgb, var(--paper) 55%, transparent);
 }
 
+/* The shade band is taller than the bar: it frames a reading chunk
+   (~3 lines), not a single line. */
 .ruler-shade-above {
   top: 0;
-  height: calc(38vh - 1.3em);
+  height: calc(38vh - 2.4em);
 }
 
 .ruler-shade-below {
-  top: calc(38vh + 1.3em);
+  top: calc(38vh + 2.4em);
   bottom: 0;
 }
 
