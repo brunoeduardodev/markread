@@ -26,6 +26,19 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+/** Extension whitelist + content-types for the /raw/* local-image route. */
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.avif': 'image/avif',
+  '.ico': 'image/x-icon',
+  '.bmp': 'image/bmp',
+};
+
 export interface MarkreadServer {
   port: number;
   close: () => Promise<void>;
@@ -100,9 +113,34 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
     }
 
     const source = await readFile(abs, 'utf8');
-    const doc = renderDoc(source, relPath.split('/').pop() ?? relPath);
+    const docDir = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+    const doc = renderDoc(source, relPath.split('/').pop() ?? relPath, docDir);
     const minutes = Math.max(1, Math.round(doc.wordCount / WPM_DEFAULT));
     return c.json({ path: relPath, ...doc, minutes });
+  });
+
+  // Local images referenced by markdown: same path-traversal guard as /api/doc,
+  // restricted to a small image extension whitelist.
+  app.get('/raw/*', async (c) => {
+    const urlPath = new URL(c.req.url).pathname;
+    const relPath = decodeURIComponent(urlPath.slice('/raw/'.length));
+    const abs = resolve(root, relPath);
+    if (abs !== root && !abs.startsWith(root + sep)) {
+      return c.text('not found', 404);
+    }
+    const mime = IMAGE_MIME[extname(abs).toLowerCase()];
+    if (!mime || !existsSync(abs)) {
+      return c.text('not found', 404);
+    }
+    try {
+      const body = await readFile(abs);
+      return c.body(body, 200, {
+        'content-type': mime,
+        'cache-control': 'public, max-age=60',
+      });
+    } catch {
+      return c.text('not found', 404);
+    }
   });
 
   // Static SPA assets, falling back to index.html for client-side routing.

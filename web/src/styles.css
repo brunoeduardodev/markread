@@ -88,11 +88,17 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Soft cross-fade when cycling themes — chrome only, not every code span */
+/* Soft cross-fade when cycling themes — chrome only, not every code span.
+   Opacity is included here too so focus mode can hide/reveal this same
+   chrome without a second, conflicting transition declaration. */
 body,
 .sidebar,
+.toc,
+.progress-bar,
+.doc-meta,
+.complete-pill,
 .doc-content pre {
-  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease, opacity 200ms ease;
 }
 
 /* --- Layout ------------------------------------------------------------- */
@@ -123,6 +129,7 @@ body,
   display: flex;
   flex-direction: column;
   align-items: center;
+  transition: margin-left 200ms ease, margin-right 200ms ease;
 }
 
 /* --- Sidebar ------------------------------------------------------------ */
@@ -682,6 +689,153 @@ body,
   border-radius: 3px;
 }
 
+/* --- Focus mode ------------------------------------------------------------ */
+
+.layout.focus .sidebar,
+.layout.focus .toc,
+.layout.focus .progress-bar,
+.layout.focus .doc-meta,
+.layout.focus .complete-pill {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.layout.focus .reading-pane {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.doc-content > * {
+  transition: opacity 250ms ease;
+}
+
+.focus-dim .doc-content > *:not(.current) {
+  opacity: 0.22;
+}
+
+/* --- Reading ruler ------------------------------------------------------------ */
+
+.reading-ruler {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.ruler-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(38vh - 1.3em);
+  height: 2.6em;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
+.ruler-shade-above,
+.ruler-shade-below {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: color-mix(in srgb, var(--paper) 55%, transparent);
+}
+
+.ruler-shade-above {
+  top: 0;
+  height: calc(38vh - 1.3em);
+}
+
+.ruler-shade-below {
+  top: calc(38vh + 1.3em);
+  bottom: 0;
+}
+
+.ruler-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(38vh + 1.3em);
+  height: 2px;
+  background: color-mix(in srgb, var(--ink-soft) 55%, transparent);
+}
+
+/* --- File filter ------------------------------------------------------------ */
+
+.file-filter {
+  width: 100%;
+  padding: 0.6rem 1.25rem;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.file-filter::placeholder {
+  color: var(--ink-faint);
+}
+
+.file-filter:focus {
+  border-bottom-color: var(--accent);
+}
+
+/* --- Help overlay ------------------------------------------------------------ */
+
+.help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--paper) 65%, transparent);
+}
+
+.help-card {
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 1.5rem 2rem;
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  color: var(--ink-soft);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+  min-width: 20rem;
+  animation: help-in 200ms cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+
+@keyframes help-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.help-title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 1rem;
+}
+
+.help-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.55rem 1.5rem;
+}
+
+.help-list dt {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.help-list dd {
+  color: var(--ink-soft);
+}
+
 /* --- Small screens ------------------------------------------------------------ */
 
 @media (max-width: 1180px) {
@@ -707,4 +861,92 @@ body,
   .progress-bar {
     left: 0;
   }
+}
+
+/* --- Images ------------------------------------------------------------- */
+
+.doc-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+/* --- Mermaid diagrams ----------------------------------------------------
+   Rendered client-side into the <pre class="mermaid-src"> placeholder; until
+   JS runs (or if a diagram fails to parse) it shows as plain source text. */
+
+.doc-content pre.mermaid-src {
+  display: flex;
+  justify-content: center;
+  background-color: var(--paper-raised);
+}
+
+.doc-content pre.mermaid-src svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* --- Math (KaTeX) --------------------------------------------------------- */
+
+.doc-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.4em 0;
+}
+
+.doc-content p.katex-block {
+  text-align: center;
+}
+
+/* --- GitHub-style alerts (> [!NOTE] etc.) ---------------------------------
+   Left-border hue per kind, mono uppercase label, no icons — the label does
+   the work. Hues are mid-lightness so they read on light, Vesper, and
+   Tokyo Night alike. */
+
+.doc-content .markdown-alert {
+  padding: 0.9em 1.2em;
+  border-left: 2px solid var(--rule);
+  border-radius: 0 4px 4px 0;
+  color: var(--ink-soft);
+}
+
+.doc-content .markdown-alert > :not(:first-child) {
+  margin-top: 0.6em;
+}
+
+.doc-content .markdown-alert-title {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.doc-content .markdown-alert-note {
+  --alert-hue: #4a7ab8;
+}
+
+.doc-content .markdown-alert-tip {
+  --alert-hue: #3f8a63;
+}
+
+.doc-content .markdown-alert-important {
+  --alert-hue: #8b6bb8;
+}
+
+.doc-content .markdown-alert-warning {
+  --alert-hue: #b8863f;
+}
+
+.doc-content .markdown-alert-caution {
+  --alert-hue: #b85450;
+}
+
+.doc-content .markdown-alert[class*='markdown-alert-'] {
+  border-left-color: var(--alert-hue);
+  background: color-mix(in srgb, var(--alert-hue) 6%, transparent);
+}
+
+.doc-content .markdown-alert-title {
+  color: var(--alert-hue);
 }

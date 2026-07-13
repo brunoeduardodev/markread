@@ -19,13 +19,17 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
+    "@mdit/plugin-katex": "^1.0.1",
     "chokidar": "^4.0.3",
     "get-port": "^7.1.0",
     "hono": "^4.6.16",
+    "katex": "^0.17.0",
     "markdown-it": "^14.1.0",
     "markdown-it-anchor": "^9.2.0",
     "markdown-it-footnote": "^4.0.0",
+    "markdown-it-github-alerts": "^1.0.1",
     "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^11.16.0",
     "open": "^10.1.0",
     "shiki": "^3.2.1",
     "ws": "^8.18.0"

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { ProgressTracker, type SectionMeta, type SectionProgress } from './progress.js';
+import { enhanceDoc } from './enhance.js';
 
 interface DocEntry {
   path: string;
@@ -40,6 +41,14 @@ function initialTheme(): Theme {
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'vesper' : 'light';
 }
 
+const RULERS = ['off', 'bar', 'shade', 'underline'] as const;
+type Ruler = (typeof RULERS)[number];
+
+function initialRuler(): Ruler {
+  const stored = localStorage.getItem('markread:ruler') as Ruler | null;
+  return stored && RULERS.includes(stored) ? stored : 'off';
+}
+
 function currentHashPath(): string {
   return decodeURIComponent(location.hash.replace(/^#\//, ''));
 }
@@ -60,12 +69,7 @@ for (const cancelEvent of ['wheel', 'touchstart'] as const) {
   addEventListener(cancelEvent, () => (scroller.active = false), { passive: true });
 }
 
-function smoothScrollBy(delta: number) {
-  if (!scroller.active) scroller.target = window.scrollY;
-  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-  scroller.target = Math.max(0, Math.min(maxScroll, scroller.target + delta));
-  if (scroller.active) return;
-
+function runGlide() {
   scroller.active = true;
   const step = () => {
     if (!scroller.active) return; // cancelled by wheel/touch
@@ -79,6 +83,48 @@ function smoothScrollBy(delta: number) {
     requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
+}
+
+function smoothScrollBy(delta: number) {
+  if (!scroller.active) scroller.target = window.scrollY;
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+  scroller.target = Math.max(0, Math.min(maxScroll, scroller.target + delta));
+  if (scroller.active) return;
+  runGlide();
+}
+
+/** Glide straight to an absolute position (used by g/G). */
+function smoothScrollTo(y: number) {
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+  scroller.target = Math.max(0, Math.min(maxScroll, y));
+  if (scroller.active) return;
+  runGlide();
+}
+
+/** Focus level 2: mark the direct child of .doc-content nearest the reading
+    line (30% down the viewport) as `.current` so CSS can dim the rest. */
+function updateCurrentBlock() {
+  const article = document.querySelector('.doc-content');
+  if (!article) return;
+  const line = window.scrollY + window.innerHeight * 0.3;
+  const children = Array.from(article.children) as HTMLElement[];
+  if (children.length === 0) return;
+
+  let current: HTMLElement | null = null;
+  for (const child of children) {
+    const rect = child.getBoundingClientRect();
+    const top = rect.top + window.scrollY;
+    const bottom = top + rect.height;
+    if (line >= top && line < bottom) {
+      current = child;
+      break;
+    }
+  }
+  if (!current) {
+    const firstTop = children[0].getBoundingClientRect().top + window.scrollY;
+    current = line < firstTop ? children[0] : children[children.length - 1];
+  }
+  for (const child of children) child.classList.toggle('current', child === current);
 }
 
 /** Sections that participate in progress: bounded at heading level ≤ 3. */
@@ -111,13 +157,21 @@ export function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
+  // Focus mode: 0 off, 1 focus (chrome hidden), 2 focus+dim. Ephemeral.
+  const [focusLevel, setFocusLevel] = useState(0);
+  const [ruler, setRuler] = useState<Ruler>(initialRuler);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [filterQuery, setFilterQuery] = useState('');
 
   const tracker = useRef(new ProgressTracker());
   // Dev affordance: inspectable from the browser console.
   (window as unknown as { __markread: ProgressTracker }).__markread = tracker.current;
   const filesState = useRef<Record<string, FileState>>({});
+  const focusLevelRef = useRef(0);
+  const filterInputRef = useRef<HTMLInputElement>(null);
   const wpm = useRef(238);
   const docRef = useRef<Doc | null>(null);
+  const contentRef = useRef<HTMLElement>(null);
   // Resolves once /api/state has been loaded — loadDoc must wait for it,
   // otherwise resume races the state fetch and silently restores to 0.
   const stateReady = useRef<Promise<void> | null>(null);
@@ -230,6 +284,24 @@ export function App() {
     localStorage.setItem('markread:theme', theme);
   }, [theme]);
 
+  // Post-render enhancement: mermaid diagrams + KaTeX CSS (lazy chunks).
+  // Re-runs on theme change so diagrams re-render in the matching palette.
+  useEffect(() => {
+    if (doc && contentRef.current) enhanceDoc(contentRef.current, theme);
+  }, [doc, theme]);
+
+  // Reading ruler choice persists; focus level does not.
+  useEffect(() => {
+    localStorage.setItem('markread:ruler', ruler);
+  }, [ruler]);
+
+  // Mirror focus level into a ref for the scroll-spy effect (stable deps),
+  // and re-measure the current block the moment level 2 turns on.
+  useEffect(() => {
+    focusLevelRef.current = focusLevel;
+    if (focusLevel === 2) updateCurrentBlock();
+  }, [focusLevel]);
+
   // Initial load: tree + reading state. loadDoc awaits stateReady, so the
   // first document render always sees persisted progress.
   useEffect(() => {
@@ -300,7 +372,10 @@ export function App() {
     let raf = 0;
     const onScroll = () => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => setActiveSection(tracker.current.currentSectionId()));
+      raf = requestAnimationFrame(() => {
+        setActiveSection(tracker.current.currentSectionId());
+        if (focusLevelRef.current === 2) updateCurrentBlock();
+      });
     };
     const onResize = () => {
       tracker.current.measure();
@@ -350,7 +425,8 @@ export function App() {
     }
   }, []);
 
-  // Keyboard: j/k scroll · n/p file nav · t theme
+  // Keyboard: j/k scroll · n/p file nav · [/] sections · g/G top/bottom ·
+  // f focus · r ruler · t theme · / filter · ? help · Esc close/exit
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -370,10 +446,36 @@ export function App() {
         if (target) location.hash = `#/${target.path}`;
       } else if (event.key === 'p' && index > 0) location.hash = `#/${docs[index - 1].path}`;
       else if (event.key === 't') setTheme((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]);
+      else if (event.key === '[' || event.key === ']') {
+        const headingSections = docRef.current ? progressSections(docRef.current) : [];
+        if (headingSections.length === 0) return;
+        const currentId = tracker.current.currentSectionId();
+        let idx = headingSections.findIndex((s) => s.id === currentId);
+        if (idx === -1) idx = event.key === ']' ? -1 : 0;
+        const nextIdx = event.key === ']'
+          ? Math.min(headingSections.length - 1, idx + 1)
+          : Math.max(0, idx - 1);
+        document.getElementById(headingSections[nextIdx].id)?.scrollIntoView({ behavior: 'smooth' });
+      } else if (event.key === 'g') smoothScrollTo(0);
+      else if (event.key === 'G') smoothScrollTo(document.documentElement.scrollHeight);
+      else if (event.key === 'f') setFocusLevel((l) => (l + 1) % 3);
+      else if (event.key === 'r') setRuler((r) => RULERS[(RULERS.indexOf(r) + 1) % RULERS.length]);
+      else if (event.key === '/') {
+        event.preventDefault();
+        filterInputRef.current?.focus();
+      } else if (event.key === '?') setHelpOpen((h) => !h);
+      else if (event.key === 'Escape') {
+        // Priority: close help → clear/blur filter → exit focus mode.
+        if (helpOpen) setHelpOpen(false);
+        else if (filterQuery) {
+          setFilterQuery('');
+          filterInputRef.current?.blur();
+        } else if (focusLevel > 0) setFocusLevel(0);
+      }
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [docs]);
+  }, [docs, helpOpen, filterQuery, focusLevel]);
 
   const t = tracker.current;
   const sections = doc ? progressSections(doc) : [];
@@ -397,6 +499,10 @@ export function App() {
   const activeIndex = docs.findIndex((d) => d.path === active);
   const nextUp = justCompleted ? nextUnread(docs, filesState.current, activeIndex) : undefined;
 
+  const filteredDocs = filterQuery
+    ? docs.filter((d) => d.path.toLowerCase().includes(filterQuery.toLowerCase()))
+    : docs;
+
   const badgeFor = (entry: DocEntry) => {
     if (entry.path === active && doc) {
       // Live values for the open doc, not the last-persisted snapshot.
@@ -412,7 +518,7 @@ export function App() {
   };
 
   return (
-    <div class="layout">
+    <div class={`layout ${focusLevel >= 1 ? 'focus' : ''} ${focusLevel === 2 ? 'focus-dim' : ''}`}>
       <aside class="sidebar">
         <header class="brand">
           <span class="brand-mark">mark</span>read
@@ -423,8 +529,27 @@ export function App() {
             {folderMinutesLeft > 0 && <span> · ~{folderMinutesLeft} min left</span>}
           </div>
         )}
+        <input
+          ref={filterInputRef}
+          type="text"
+          class="file-filter"
+          placeholder="filter…"
+          value={filterQuery}
+          onInput={(event) => setFilterQuery((event.target as HTMLInputElement).value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              const match = filteredDocs[0];
+              if (match) location.hash = `#/${match.path}`;
+              setFilterQuery('');
+              (event.target as HTMLInputElement).blur();
+            } else if (event.key === 'Escape') {
+              setFilterQuery('');
+              (event.target as HTMLInputElement).blur();
+            }
+          }}
+        />
         <nav class="file-list">
-          {docs.map((entry) => (
+          {filteredDocs.map((entry) => (
             <a
               key={entry.path}
               href={`#/${entry.path}`}
@@ -439,7 +564,7 @@ export function App() {
           ))}
         </nav>
         <footer class="sidebar-foot">
-          <span class="kbd-hint">j/k scroll · n/p files · t theme</span>
+          <span class="kbd-hint">? shortcuts</span>
           <span class="theme-name">{theme}</span>
         </footer>
       </aside>
@@ -476,7 +601,7 @@ export function App() {
                 </button>
               </span>
             </div>
-            <article class="doc-content" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: doc.html }} />
+            <article ref={contentRef} class="doc-content" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: doc.html }} />
             {resumeTop !== null && (
               <div class="resume-marker" style={{ top: `${resumeTop}px` }}>
                 <span>you were here</span>
@@ -523,6 +648,39 @@ export function App() {
             );
           })}
         </nav>
+      )}
+
+      {ruler !== 'off' && (
+        <div class="reading-ruler" aria-hidden="true">
+          {ruler === 'bar' && <div class="ruler-bar" />}
+          {ruler === 'shade' && (
+            <>
+              <div class="ruler-shade-above" />
+              <div class="ruler-shade-below" />
+            </>
+          )}
+          {ruler === 'underline' && <div class="ruler-underline" />}
+        </div>
+      )}
+
+      {helpOpen && (
+        <div class="help-backdrop" onClick={() => setHelpOpen(false)}>
+          <div class="help-card" onClick={(event) => event.stopPropagation()}>
+            <div class="help-title">shortcuts</div>
+            <dl class="help-list">
+              <dt>j / k</dt><dd>scroll</dd>
+              <dt>n / p</dt><dd>next / prev file</dd>
+              <dt>[ / ]</dt><dd>prev / next section</dd>
+              <dt>g / G</dt><dd>top / bottom</dd>
+              <dt>f</dt><dd>focus mode</dd>
+              <dt>r</dt><dd>reading ruler</dd>
+              <dt>t</dt><dd>theme</dd>
+              <dt>/</dt><dd>filter files</dd>
+              <dt>?</dt><dd>toggle this help</dd>
+              <dt>Esc</dt><dd>close / exit</dd>
+            </dl>
+          </div>
+        </div>
       )}
     </div>
   );
