@@ -35,7 +35,7 @@
   --body-word-spacing: normal;
 
   --sidebar-width: 17rem;
-  --toc-width: 15rem;
+  --toc-width: 22rem;
 }
 
 /* Vesper — near-black monochrome with the signature peach.
@@ -293,11 +293,18 @@ body,
   position: fixed;
   inset: 0 0 0 auto;
   width: var(--toc-width);
-  padding: 3.5rem 1.25rem 2rem 0.5rem;
-  overflow-y: auto;
+  padding: 3.5rem 1.5rem 2rem 0.75rem;
+  display: flex;
+  flex-direction: column;
   font-family: var(--font-ui);
   font-size: 0.75rem;
   line-height: 1.4;
+}
+
+.toc-items {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .toc-header {
@@ -535,14 +542,13 @@ body,
   100% { opacity: 0; }
 }
 
-/* Fill-the-circle: doc progress as a ring, bottom-right */
+/* Fill-the-circle: the doc's stats hub, pinned at the bottom of the rail */
 .progress-ring {
-  position: fixed;
-  right: calc(var(--toc-width) + 1.5rem);
-  bottom: 1.5rem;
-  width: 46px;
-  height: 46px;
-  z-index: 12;
+  position: relative;
+  flex: none;
+  width: 280px;
+  height: 280px;
+  margin: 1.5rem auto 0;
 }
 
 .progress-ring svg {
@@ -553,13 +559,13 @@ body,
 .ring-track {
   fill: none;
   stroke: var(--rule);
-  stroke-width: 3;
+  stroke-width: 3.5;
 }
 
 .ring-fill {
   fill: none;
   stroke: var(--accent);
-  stroke-width: 3;
+  stroke-width: 3.5;
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: 50% 50%;
@@ -570,14 +576,28 @@ body,
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   font-family: var(--font-ui);
-  font-size: 0.625rem;
   color: var(--ink-faint);
 }
 
-.progress-ring.done .ring-label {
+.ring-pct {
+  font-size: 2.6rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink-soft);
+  line-height: 1;
+}
+
+.ring-sub {
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+}
+
+.progress-ring.done .ring-pct {
   color: var(--accent);
 }
 
@@ -587,13 +607,7 @@ body,
 
 @keyframes ring-pulse {
   0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.16); }
-}
-
-@media (max-width: 1180px) {
-  .progress-ring {
-    right: 1.5rem;
-  }
+  40% { transform: scale(1.06); }
 }
 
 /* The dopamine layer is chrome — focus mode silences all of it */
@@ -892,13 +906,20 @@ body,
 
 /* --- Scrollbars (subtle, chrome-free) ---------------------------------------- */
 
-.file-list::-webkit-scrollbar {
+.file-list::-webkit-scrollbar,
+.toc-items::-webkit-scrollbar {
   width: 6px;
 }
 
-.file-list::-webkit-scrollbar-thumb {
+.file-list::-webkit-scrollbar-thumb,
+.toc-items::-webkit-scrollbar-thumb {
   background: var(--rule);
   border-radius: 3px;
+}
+
+.toc-items {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
 }
 
 /* --- Focus mode ------------------------------------------------------------ */

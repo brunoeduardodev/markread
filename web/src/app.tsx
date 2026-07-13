@@ -684,6 +684,11 @@ export function App() {
       else if (event.key === 'G') smoothScrollTo(document.documentElement.scrollHeight);
       else if (event.key === 'f') setFocusLevel((l) => (l + 1) % 3);
       else if (event.key === 'r') setRuler((r) => RULERS[(RULERS.indexOf(r) + 1) % RULERS.length]);
+      // Shift+R: reset progress with the same two-step confirm as the ↺ button.
+      else if (event.key === 'R') {
+        if (confirmReset) resetProgress();
+        else setConfirmReset(true);
+      }
       else if (event.key === 's') setSettingsOpen((o) => !o);
       else if (event.key === '/') {
         event.preventDefault();
@@ -709,7 +714,7 @@ export function App() {
       removeEventListener('keyup', onKeyUp);
       stopSlide();
     };
-  }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen]);
+  }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen, confirmReset, resetProgress]);
 
   const t = tracker.current;
   const sections = doc ? progressSections(doc) : [];
@@ -736,7 +741,7 @@ export function App() {
   // Odometer + final-stretch marker + fill-the-circle ring
   const wordsPassed = doc ? Math.min(doc.wordCount, Math.round(t.passedWords())) : 0;
   const docFraction = doc ? Math.min(1, t.allRead() ? 1 : wordsPassed / Math.max(1, doc.wordCount)) : 0;
-  const RING_CIRCUMFERENCE = 2 * Math.PI * 17;
+  const RING_CIRCUMFERENCE = 2 * Math.PI * 54;
   const lastSectionId = sections.length > 0 ? sections[sections.length - 1].id : null;
   const finalStretch =
     !!doc && sections.length > 1 && !t.allRead() && activeSection === lastSectionId;
@@ -910,24 +915,6 @@ export function App() {
                 <span>you were here</span>
               </div>
             )}
-            {sections.length > 0 && (
-              <div class={`progress-ring ${ringPulse ? 'pulse' : ''} ${t.allRead() ? 'done' : ''}`} aria-hidden="true">
-                <svg viewBox="0 0 40 40">
-                  <circle class="ring-track" cx="20" cy="20" r="17" />
-                  <circle
-                    class="ring-fill"
-                    cx="20"
-                    cy="20"
-                    r="17"
-                    style={{
-                      strokeDasharray: RING_CIRCUMFERENCE,
-                      strokeDashoffset: (1 - docFraction) * RING_CIRCUMFERENCE,
-                    }}
-                  />
-                </svg>
-                <span class="ring-label">{t.allRead() ? '✓' : `${Math.floor(docFraction * 100)}`}</span>
-              </div>
-            )}
             {justCompleted && (
               <div class="complete-pill">
                 <span class="complete-check">✓</span> document complete
@@ -959,23 +946,45 @@ export function App() {
           <div class="toc-header">
             {readCount}/{sections.length} sections
           </div>
-          {tocSections.map((s) => {
-            const p = t.progress.get(s.id);
-            return (
-              <a
-                key={s.id}
-                href={`#${s.id}`}
-                class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' });
+          <div class="toc-items">
+            {tocSections.map((s) => {
+              const p = t.progress.get(s.id);
+              return (
+                <a
+                  key={s.id}
+                  href={`#${s.id}`}
+                  class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                >
+                  <span class="toc-tick" />
+                  <span class="toc-text">{s.text}</span>
+                </a>
+              );
+            })}
+          </div>
+          <div class={`progress-ring ${ringPulse ? 'pulse' : ''} ${t.allRead() ? 'done' : ''}`} aria-hidden="true">
+            <svg viewBox="0 0 120 120">
+              <circle class="ring-track" cx="60" cy="60" r="54" />
+              <circle
+                class="ring-fill"
+                cx="60"
+                cy="60"
+                r="54"
+                style={{
+                  strokeDasharray: RING_CIRCUMFERENCE,
+                  strokeDashoffset: (1 - docFraction) * RING_CIRCUMFERENCE,
                 }}
-              >
-                <span class="toc-tick" />
-                <span class="toc-text">{s.text}</span>
-              </a>
-            );
-          })}
+              />
+            </svg>
+            <div class="ring-label">
+              <span class="ring-pct">{t.allRead() ? '✓' : `${Math.floor(docFraction * 100)}%`}</span>
+              <span class="ring-sub">{t.allRead() ? 'done' : `~${minutesLeft} min left`}</span>
+              <span class="ring-sub">{wordsPassed.toLocaleString()} words read</span>
+            </div>
+          </div>
         </nav>
       )}
 
@@ -1005,6 +1014,7 @@ export function App() {
               <dt>g / G</dt><dd>top / bottom</dd>
               <dt>f</dt><dd>focus mode</dd>
               <dt>r</dt><dd>reading ruler</dd>
+              <dt>⇧R</dt><dd>reset progress (press twice)</dd>
               <dt>t</dt><dd>theme</dd>
               <dt>s</dt><dd>reading settings</dd>
               <dt>/</dt><dd>filter files</dd>
