@@ -604,8 +604,8 @@ export function App() {
 
       const path = currentHashPath();
       const index = docs.findIndex((d) => d.path === path);
-      if (event.key === 'j') smoothScrollBy(160);
-      else if (event.key === 'k') smoothScrollBy(-160);
+      if (event.key === 'j') smoothScrollBy(90);
+      else if (event.key === 'k') smoothScrollBy(-90);
       else if (event.key === 'n') {
         // Chain-loading: once the current doc is complete, n jumps to the
         // next unread doc; otherwise it's plain next-file.
@@ -820,6 +820,7 @@ export function App() {
         {doc ? (
           <>
             <div class="doc-meta">
+              <div class="doc-meta-inner">
               <span class="doc-path">{doc.path}</span>
               <span class="doc-meta-right">
                 {metaFlash && <span class="meta-flash" key={metaFlash}>{metaFlash}</span>}
@@ -836,6 +837,7 @@ export function App() {
                   {confirmReset ? 'reset progress?' : '↺'}
                 </button>
               </span>
+              </div>
             </div>
             <article ref={contentRef} class="doc-content" onClick={onArticleClick} dangerouslySetInnerHTML={{ __html: doc.html }} />
             {resumeTop !== null && (

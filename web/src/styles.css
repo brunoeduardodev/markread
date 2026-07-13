@@ -576,16 +576,33 @@ body,
 
 /* --- Doc meta bar --------------------------------------------------------- */
 
+/* Sticky companion bar: the odometer and time-left ride along while you
+   read instead of scrolling away with the page. */
 .doc-meta {
+  position: sticky;
+  top: 4px; /* just below the fixed progress bar */
+  z-index: 9;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem 0;
+  margin-bottom: 2rem;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+}
+
+.doc-meta-inner {
   width: 100%;
   max-width: var(--measure);
   display: flex;
   justify-content: space-between;
-  font-family: var(--font-ui);
-  font-size: 0.75rem;
-  color: var(--ink-faint);
-  margin-bottom: 2.5rem;
-  letter-spacing: 0.02em;
+  align-items: baseline;
+  gap: 1rem;
 }
 
 .doc-meta-right {
