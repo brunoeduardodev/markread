@@ -9,7 +9,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import chokidar from 'chokidar';
 import { scanDocs, isMarkdown } from './scan.js';
 import { initRenderer, renderDoc, countWords } from './render.js';
-import { loadState, getRootFiles, patchFileState, resetFileState, flushState, addWpmSample } from './state.js';
+import { loadState, getRootFiles, patchFileState, resetFileState, flushState, addWpmSample, patchSettings } from './state.js';
 
 /** Brysbaert 2019 meta-analysis: adult silent reading, non-fiction. */
 const WPM_DEFAULT = 238;
@@ -90,6 +90,17 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
       for (const sample of body.wpmSamples) wpm = addWpmSample(Number(sample));
     }
     return c.json({ ...file, wpm });
+  });
+
+  // Personalization panel settings: shallow-merged into appState.settings
+  // and persisted so they survive port changes / restarts.
+  app.post('/api/state/settings', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return c.json({ error: 'bad request' }, 400);
+    }
+    const settings = patchSettings(body);
+    return c.json(settings);
   });
 
   app.delete('/api/state/file', (c) => {

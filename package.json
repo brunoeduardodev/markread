@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@fontsource-variable/literata": "^5.1.1",
+    "@fontsource/atkinson-hyperlegible": "^5.2.8",
     "@fontsource/ibm-plex-mono": "^5.1.1",
     "@preact/preset-vite": "^2.9.3",
     "@types/markdown-it": "^14.1.2",

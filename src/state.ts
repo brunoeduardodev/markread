@@ -130,6 +130,15 @@ export function addWpmSample(sample: number): number {
   return state.wpm;
 }
 
+/** Shallow-merge a patch into the global settings object (e.g. reading
+    typography prefs) and persist. Returns the merged settings. */
+export function patchSettings(patch: Record<string, unknown>): Record<string, unknown> {
+  if (!state) throw new Error('state not loaded');
+  state.settings = { ...state.settings, ...patch };
+  schedulePersist();
+  return state.settings;
+}
+
 function schedulePersist(): void {
   clearTimeout(writeTimer);
   writeTimer = setTimeout(() => void persist(), WRITE_DEBOUNCE_MS);

@@ -29,6 +29,10 @@
   --measure: 68ch;
   --body-size: 1.25rem; /* 20px */
   --body-leading: 1.6;
+  /* Relaxed spacing (personalization panel) always moves these together —
+     letter-only spacing hurts reading; word-only is barely noticeable. */
+  --body-letter-spacing: normal;
+  --body-word-spacing: normal;
 
   --sidebar-width: 17rem;
   --toc-width: 15rem;
@@ -82,6 +86,8 @@ body {
   font-family: var(--font-body);
   font-size: var(--body-size);
   line-height: var(--body-leading);
+  letter-spacing: var(--body-letter-spacing);
+  word-spacing: var(--body-word-spacing);
   color: var(--ink);
   background: var(--paper);
   -webkit-font-smoothing: antialiased;
@@ -230,6 +236,21 @@ body,
 .theme-name {
   color: var(--accent);
   white-space: nowrap;
+}
+
+.settings-toggle {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
+  transition: color 150ms ease;
+}
+
+.settings-toggle:hover {
+  color: var(--accent);
 }
 
 ::selection {
@@ -834,6 +855,218 @@ body,
 
 .help-list dd {
   color: var(--ink-soft);
+}
+
+/* --- Personalization panel -------------------------------------------------
+   Not a modal: no backdrop, reading pane stays visible so every change
+   previews live. Anchored bottom-right, sibling of .help-card in chrome. */
+
+.settings-card {
+  position: fixed;
+  bottom: 2rem;
+  right: calc(var(--toc-width) + 1.5rem);
+  z-index: 25;
+  width: 19rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem 1.3rem;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  box-shadow: 0 4px 24px color-mix(in srgb, var(--ink) 8%, transparent);
+  animation: help-in 200ms cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-title {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.settings-close {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--ink-faint);
+  font-size: 1rem;
+  line-height: 1;
+  transition: color 150ms ease;
+}
+
+.settings-close:hover {
+  color: var(--accent);
+}
+
+.settings-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.settings-preset {
+  font: inherit;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.settings-preset:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+.settings-reset {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0.25rem 0.2rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+  margin-left: auto;
+  transition: color 150ms ease;
+}
+
+.settings-reset:hover {
+  color: var(--accent);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settings-label {
+  flex: none;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+}
+
+.settings-font-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.settings-font-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.settings-font-btn:hover {
+  color: var(--ink);
+}
+
+.settings-font-btn.active {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.settings-stepper button {
+  font: inherit;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  width: 1.6rem;
+  height: 1.6rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease;
+}
+
+.settings-stepper button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+.settings-stepper button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.settings-value {
+  min-width: 3.4em;
+  text-align: center;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-spacing-group {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.settings-spacing-btn {
+  font: inherit;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.settings-spacing-btn:hover {
+  color: var(--ink);
+}
+
+.settings-spacing-btn.active {
+  color: var(--ink);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+@media (max-width: 1180px) {
+  .settings-card {
+    right: 1.5rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-card {
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    width: auto;
+  }
 }
 
 /* --- Small screens ------------------------------------------------------------ */

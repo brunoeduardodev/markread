@@ -49,6 +49,62 @@ function initialRuler(): Ruler {
   return stored && RULERS.includes(stored) ? stored : 'off';
 }
 
+/* --- Personalization panel: reading typography settings -------------------
+   Server-side (survives port changes), never localStorage. Hydrated from
+   /api/state, patched via POST /api/state/settings (debounced). */
+
+const FONT_CHOICES = ['literata', 'atkinson', 'system-serif', 'system-sans'] as const;
+type FontChoice = (typeof FONT_CHOICES)[number];
+
+const SPACING_CHOICES = ['normal', 'relaxed'] as const;
+type Spacing = (typeof SPACING_CHOICES)[number];
+
+interface Settings {
+  font: FontChoice;
+  size: number; // px, 16–24
+  leading: number; // 1.4–1.9
+  measure: number; // ch, 55–80
+  spacing: Spacing;
+}
+
+const DEFAULT_SETTINGS: Settings = { font: 'literata', size: 20, leading: 1.6, measure: 68, spacing: 'normal' };
+
+const PRESETS: Record<string, Settings> = {
+  default: DEFAULT_SETTINGS,
+  cozy: { font: 'literata', size: 21, leading: 1.7, measure: 62, spacing: 'normal' },
+  airy: { font: 'atkinson', size: 20, leading: 1.75, measure: 64, spacing: 'relaxed' },
+  compact: { font: 'system-sans', size: 18, leading: 1.5, measure: 72, spacing: 'normal' },
+};
+
+const FONT_STACKS: Record<FontChoice, string> = {
+  literata: "'Literata Variable', Georgia, serif",
+  atkinson: "'Atkinson Hyperlegible', 'Literata Variable', serif",
+  'system-serif': "Georgia, 'Iowan Old Style', serif",
+  'system-sans': "-apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif",
+};
+
+const FONT_LABELS: Record<FontChoice, string> = {
+  literata: 'Literata',
+  atkinson: 'Atkinson',
+  'system-serif': 'Serif',
+  'system-sans': 'Sans',
+};
+
+const clamp = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Validate an arbitrary payload (server settings, possibly stale/partial)
+    into a fully-formed Settings object, falling back to defaults per field. */
+function sanitizeSettings(raw: unknown): Settings {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const font = FONT_CHOICES.includes(r.font as FontChoice) ? (r.font as FontChoice) : DEFAULT_SETTINGS.font;
+  const size = typeof r.size === 'number' ? clamp(Math.round(r.size), 16, 24) : DEFAULT_SETTINGS.size;
+  const leading = typeof r.leading === 'number' ? round2(clamp(r.leading, 1.4, 1.9)) : DEFAULT_SETTINGS.leading;
+  const measure = typeof r.measure === 'number' ? clamp(Math.round(r.measure), 55, 80) : DEFAULT_SETTINGS.measure;
+  const spacing = SPACING_CHOICES.includes(r.spacing as Spacing) ? (r.spacing as Spacing) : DEFAULT_SETTINGS.spacing;
+  return { font, size, leading, measure, spacing };
+}
+
 function currentHashPath(): string {
   return decodeURIComponent(location.hash.replace(/^#\//, ''));
 }
@@ -162,6 +218,8 @@ export function App() {
   const [ruler, setRuler] = useState<Ruler>(initialRuler);
   const [helpOpen, setHelpOpen] = useState(false);
   const [filterQuery, setFilterQuery] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   const tracker = useRef(new ProgressTracker());
   // Dev affordance: inspectable from the browser console.
@@ -177,6 +235,11 @@ export function App() {
   const stateReady = useRef<Promise<void> | null>(null);
   // Observed reading-speed samples awaiting the next persist.
   const wpmQueue = useRef<number[]>([]);
+  // Settings hydration: guards the debounced-persist effect from firing on
+  // default state before /api/state resolves, and from re-POSTing the exact
+  // payload it just hydrated.
+  const settingsHydrated = useRef(false);
+  const lastPersistedSettings = useRef(JSON.stringify(DEFAULT_SETTINGS));
 
   const persistProgress = useCallback((path: string, useBeacon = false) => {
     const t = tracker.current;
@@ -295,6 +358,41 @@ export function App() {
     localStorage.setItem('markread:ruler', ruler);
   }, [ruler]);
 
+  // Apply personalization settings as CSS custom properties — live preview,
+  // no re-render of the document itself required.
+  useEffect(() => {
+    const root = document.documentElement.style;
+    root.setProperty('--font-body', FONT_STACKS[settings.font]);
+    root.setProperty('--body-size', `${settings.size / 16}rem`);
+    root.setProperty('--body-leading', String(settings.leading));
+    root.setProperty('--measure', `${settings.measure}ch`);
+    if (settings.spacing === 'relaxed') {
+      root.setProperty('--body-letter-spacing', '0.035em');
+      root.setProperty('--body-word-spacing', '0.06em');
+    } else {
+      root.setProperty('--body-letter-spacing', 'normal');
+      root.setProperty('--body-word-spacing', 'normal');
+    }
+  }, [settings]);
+
+  // Debounced persistence to the server (settings live in ~/.markread/state.json,
+  // not localStorage, so they survive port changes). Skipped until hydrated
+  // and skipped when unchanged from the last persisted/hydrated value.
+  useEffect(() => {
+    if (!settingsHydrated.current) return;
+    const serialized = JSON.stringify(settings);
+    if (serialized === lastPersistedSettings.current) return;
+    const timer = setTimeout(() => {
+      lastPersistedSettings.current = serialized;
+      fetch('/api/state/settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: serialized,
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [settings]);
+
   // Mirror focus level into a ref for the scroll-spy effect (stable deps),
   // and re-measure the current block the moment level 2 turns on.
   useEffect(() => {
@@ -310,6 +408,10 @@ export function App() {
       .then((stateRes) => {
         filesState.current = stateRes.files ?? {};
         wpm.current = stateRes.wpm ?? 238;
+        const hydrated = sanitizeSettings(stateRes.settings);
+        lastPersistedSettings.current = JSON.stringify(hydrated);
+        settingsHydrated.current = true;
+        setSettings(hydrated);
       })
       .catch(() => {});
     loadTree();
@@ -460,13 +562,15 @@ export function App() {
       else if (event.key === 'G') smoothScrollTo(document.documentElement.scrollHeight);
       else if (event.key === 'f') setFocusLevel((l) => (l + 1) % 3);
       else if (event.key === 'r') setRuler((r) => RULERS[(RULERS.indexOf(r) + 1) % RULERS.length]);
+      else if (event.key === 's') setSettingsOpen((o) => !o);
       else if (event.key === '/') {
         event.preventDefault();
         filterInputRef.current?.focus();
       } else if (event.key === '?') setHelpOpen((h) => !h);
       else if (event.key === 'Escape') {
-        // Priority: close help → clear/blur filter → exit focus mode.
+        // Priority: close help → close settings panel → clear/blur filter → exit focus mode.
         if (helpOpen) setHelpOpen(false);
+        else if (settingsOpen) setSettingsOpen(false);
         else if (filterQuery) {
           setFilterQuery('');
           filterInputRef.current?.blur();
@@ -475,7 +579,7 @@ export function App() {
     };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [docs, helpOpen, filterQuery, focusLevel]);
+  }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen]);
 
   const t = tracker.current;
   const sections = doc ? progressSections(doc) : [];
@@ -565,6 +669,9 @@ export function App() {
         </nav>
         <footer class="sidebar-foot">
           <span class="kbd-hint">? shortcuts</span>
+          <button class="settings-toggle" onClick={() => setSettingsOpen((o) => !o)} title="Reading settings (s)">
+            aa
+          </button>
           <span class="theme-name">{theme}</span>
         </footer>
       </aside>
@@ -675,10 +782,121 @@ export function App() {
               <dt>f</dt><dd>focus mode</dd>
               <dt>r</dt><dd>reading ruler</dd>
               <dt>t</dt><dd>theme</dd>
+              <dt>s</dt><dd>reading settings</dd>
               <dt>/</dt><dd>filter files</dd>
               <dt>?</dt><dd>toggle this help</dd>
               <dt>Esc</dt><dd>close / exit</dd>
             </dl>
+          </div>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div class="settings-card">
+          <div class="settings-header">
+            <span class="settings-title">reading settings</span>
+            <button class="settings-close" onClick={() => setSettingsOpen(false)} title="Close (s / Esc)">
+              ×
+            </button>
+          </div>
+
+          <div class="settings-presets">
+            {Object.keys(PRESETS).map((name) => (
+              <button key={name} class="settings-preset" onClick={() => setSettings(PRESETS[name])}>
+                {name}
+              </button>
+            ))}
+            <button class="settings-reset" onClick={() => setSettings(DEFAULT_SETTINGS)}>
+              reset
+            </button>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">font</span>
+            <div class="settings-font-group">
+              {FONT_CHOICES.map((f) => (
+                <button
+                  key={f}
+                  class={`settings-font-btn ${settings.font === f ? 'active' : ''}`}
+                  style={{ fontFamily: FONT_STACKS[f] }}
+                  onClick={() => setSettings((s) => ({ ...s, font: f }))}
+                >
+                  {FONT_LABELS[f]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">size</span>
+            <div class="settings-stepper">
+              <button
+                disabled={settings.size <= 16}
+                onClick={() => setSettings((s) => ({ ...s, size: clamp(s.size - 1, 16, 24) }))}
+              >
+                –
+              </button>
+              <span class="settings-value">{settings.size}px</span>
+              <button
+                disabled={settings.size >= 24}
+                onClick={() => setSettings((s) => ({ ...s, size: clamp(s.size + 1, 16, 24) }))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">leading</span>
+            <div class="settings-stepper">
+              <button
+                disabled={settings.leading <= 1.4}
+                onClick={() => setSettings((s) => ({ ...s, leading: round2(clamp(s.leading - 0.05, 1.4, 1.9)) }))}
+              >
+                –
+              </button>
+              <span class="settings-value">{settings.leading.toFixed(2)}</span>
+              <button
+                disabled={settings.leading >= 1.9}
+                onClick={() => setSettings((s) => ({ ...s, leading: round2(clamp(s.leading + 0.05, 1.4, 1.9)) }))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">measure</span>
+            <div class="settings-stepper">
+              <button
+                disabled={settings.measure <= 55}
+                onClick={() => setSettings((s) => ({ ...s, measure: clamp(s.measure - 1, 55, 80) }))}
+              >
+                –
+              </button>
+              <span class="settings-value">{settings.measure}ch</span>
+              <button
+                disabled={settings.measure >= 80}
+                onClick={() => setSettings((s) => ({ ...s, measure: clamp(s.measure + 1, 55, 80) }))}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-row">
+            <span class="settings-label">spacing</span>
+            <div class="settings-spacing-group">
+              {SPACING_CHOICES.map((sp) => (
+                <button
+                  key={sp}
+                  class={`settings-spacing-btn ${settings.spacing === sp ? 'active' : ''}`}
+                  onClick={() => setSettings((s) => ({ ...s, spacing: sp }))}
+                >
+                  {sp}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
