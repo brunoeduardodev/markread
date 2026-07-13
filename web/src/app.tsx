@@ -211,6 +211,12 @@ export function App() {
   const [resumeTop, setResumeTop] = useState<number | null>(null);
   const [justCompleted, setJustCompleted] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  // Dopamine layer: transient cues, all deterministic, all truthful.
+  const [metaFlash, setMetaFlash] = useState<string | null>(null);
+  const [rollupFlash, setRollupFlash] = useState(false);
+  const [folderClear, setFolderClear] = useState<string | null>(null);
+  // State, not an imperative class — re-renders would clobber the latter.
+  const [nextUpId, setNextUpId] = useState<string | null>(null);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
   // Focus mode: 0 off, 1 focus (chrome hidden), 2 focus+dim. Ephemeral.
@@ -235,6 +241,31 @@ export function App() {
   const stateReady = useRef<Promise<void> | null>(null);
   // Observed reading-speed samples awaiting the next persist.
   const wpmQueue = useRef<number[]>([]);
+  // Dopamine layer bookkeeping
+  const sessionCompletions = useRef(0);
+  const lastCueAt = useRef(0);
+  const prevDoneCount = useRef(-1);
+  const halfwayShown = useRef(false);
+  const folderClearShown = useRef(false);
+  const metaFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Sections auto-passed while a doc is being (re)initialized aren't earned —
+  // no cues for them, and no budget drain either.
+  const suppressCues = useRef(false);
+
+  /** Celebration budget for sub-completion cues: at most one per window.
+      Completion-level moments (doc/folder) are exempt — they're the stars. */
+  const tryCue = useCallback(() => {
+    const now = performance.now();
+    if (now - lastCueAt.current < 8000) return false;
+    lastCueAt.current = now;
+    return true;
+  }, []);
+
+  const flashMeta = useCallback((text: string) => {
+    setMetaFlash(text);
+    clearTimeout(metaFlashTimer.current);
+    metaFlashTimer.current = setTimeout(() => setMetaFlash(null), 1600);
+  }, []);
   // Settings hydration: guards the debounced-persist effect from firing on
   // default state before /api/state resolves, and from re-POSTing the exact
   // payload it just hydrated.
@@ -304,8 +335,12 @@ export function App() {
 
       const t = tracker.current;
       t.wpm = wpm.current;
+      suppressCues.current = true;
       t.setDoc(progressSections(data), saved?.sections ?? {});
+      suppressCues.current = false;
       t.start();
+      // Docs resumed past their midpoint shouldn't whisper "halfway".
+      halfwayShown.current = t.passedWords() / Math.max(1, data.wordCount) >= 0.5;
       setActiveSection(t.currentSectionId());
       setProgressVersion((v) => v + 1);
 
@@ -327,7 +362,9 @@ export function App() {
     }).catch(() => {});
     delete filesState.current[current.path];
     window.scrollTo({ top: 0, behavior: 'instant' });
+    suppressCues.current = true;
     tracker.current.setDoc(progressSections(current), {});
+    suppressCues.current = false;
     setJustCompleted(false);
     setConfirmReset(false);
     setActiveSection(tracker.current.currentSectionId());
@@ -453,21 +490,51 @@ export function App() {
     };
   }, [persistProgress]);
 
-  // Dwell → UI updates, completion detection, WPM samples
+  // Progress → UI updates, completion detection, WPM samples, dopamine cues
   useEffect(() => {
     const t = tracker.current;
-    t.onTick = () => setProgressVersion((v) => v + 1);
-    t.onRead = () => {
+    t.onTick = () => {
       setProgressVersion((v) => v + 1);
-      const path = docRef.current?.path;
+      // Halfway whisper — long docs only, once per doc, budgeted.
+      const d = docRef.current;
+      if (d && d.minutes >= 15 && !halfwayShown.current) {
+        const fraction = t.passedWords() / Math.max(1, d.wordCount);
+        if (fraction >= 0.5) {
+          halfwayShown.current = true;
+          if (tryCue()) flashMeta('halfway');
+        }
+      }
+    };
+    t.onRead = (id) => {
+      setProgressVersion((v) => v + 1);
+      const d = docRef.current;
+      const secs = d ? progressSections(d) : [];
+      const section = secs.find((s) => s.id === id);
+
+      // Sub-completion cues share one budget: at most one animated moment
+      // per window, or fast readers get a fireworks strip instead of calm.
+      // A read that completes the doc gets the pill instead — no competing flash.
+      if (!suppressCues.current && !t.allRead() && section && section.wordCount >= 50 && tryCue()) {
+        // Delta pulse: progress framed as time earned back.
+        flashMeta(`−${Math.max(1, Math.round(section.wordCount / wpm.current))} min`);
+        // Next-up shimmer: the reward points forward.
+        const next = secs[secs.indexOf(section) + 1];
+        if (next) {
+          setNextUpId(next.id);
+          setTimeout(() => setNextUpId(null), 1500);
+        }
+      }
+
+      const path = d?.path;
       if (path && t.allRead() && !filesState.current[path]?.completed) {
+        sessionCompletions.current += 1;
         setJustCompleted(true);
         persistProgress(path); // make the ✓ durable immediately
       }
     };
     t.onSample = (sample) => wpmQueue.current.push(sample);
     return () => t.stop();
-  }, [persistProgress]);
+  }, [persistProgress, tryCue, flashMeta]);
 
   // Scroll-spy + section re-measure on resize
   useEffect(() => {
@@ -603,9 +670,56 @@ export function App() {
   const activeIndex = docs.findIndex((d) => d.path === active);
   const nextUp = justCompleted ? nextUnread(docs, filesState.current, activeIndex) : undefined;
 
+  // Odometer + final-stretch marker
+  const wordsPassed = doc ? Math.min(doc.wordCount, Math.round(t.passedWords())) : 0;
+  const lastSectionId = sections.length > 0 ? sections[sections.length - 1].id : null;
+  const finalStretch =
+    !!doc && sections.length > 1 && !t.allRead() && activeSection === lastSectionId;
+
+  // Pace line for the completion pill: sum of per-section traverse times.
+  const readElapsedMs = sections.reduce((sum, s) => sum + (t.progress.get(s.id)?.dwellMs ?? 0), 0);
+  const paceWpm = readElapsedMs > 30_000 && doc ? Math.round(doc.wordCount / (readElapsedMs / 60_000)) : 0;
+  const paceOk = paceWpm >= 60 && paceWpm <= 900;
+  const nth = (n: number) => (n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`);
+
+  // Cheapest win: the smallest finishable thing in the folder (task initiation).
+  const cheapest = (() => {
+    if (docs.length < 2) return undefined;
+    let best: { entry: DocEntry; min: number } | undefined;
+    for (const entry of docs) {
+      if (entry.path === active) continue;
+      const st = fileStateOf(entry.path);
+      if (st?.completed) continue;
+      const remaining = Math.max(0, entry.wordCount - (st?.readWords ?? 0));
+      if (remaining === 0) continue;
+      const min = Math.max(1, Math.ceil(remaining / wpm.current));
+      if (!best || min < best.min) best = { entry, min };
+    }
+    return best && best.min <= 15 ? best : undefined;
+  })();
+
   const filteredDocs = filterQuery
     ? docs.filter((d) => d.path.toLowerCase().includes(filterQuery.toLowerCase()))
     : docs;
+
+  // Rollup flash on any completion; folder-clear moment when the set closes.
+  useEffect(() => {
+    if (prevDoneCount.current === -1) {
+      prevDoneCount.current = doneCount;
+      return;
+    }
+    if (doneCount > prevDoneCount.current) {
+      setRollupFlash(true);
+      setTimeout(() => setRollupFlash(false), 900);
+      if (doneCount === docs.length && docs.length > 1 && !folderClearShown.current) {
+        folderClearShown.current = true;
+        const words = docs.reduce((sum, d) => sum + d.wordCount, 0);
+        setFolderClear(`folder clear · ${docs.length} docs · ${words.toLocaleString()} words`);
+        setTimeout(() => setFolderClear(null), 6000);
+      }
+    }
+    prevDoneCount.current = doneCount;
+  });
 
   const badgeFor = (entry: DocEntry) => {
     if (entry.path === active && doc) {
@@ -618,6 +732,9 @@ export function App() {
     const st = fileStateOf(entry.path);
     if (st?.completed) return <span class="file-state done">✓</span>;
     if (st?.readWords) return <span class="file-state pct">{Math.min(99, Math.round((st.readWords / Math.max(1, entry.wordCount)) * 100))}%</span>;
+    // Quick-win chip: untouched docs finishable in ≤5 min show the low door in.
+    const quickMin = Math.ceil(entry.wordCount / wpm.current);
+    if (entry.wordCount > 0 && quickMin <= 5) return <span class="file-state quick">~{quickMin} min</span>;
     return <span class="file-state dot" />;
   };
 
@@ -628,10 +745,15 @@ export function App() {
           <span class="brand-mark">mark</span>read
         </header>
         {docs.length > 0 && (
-          <div class="folder-rollup">
+          <div class={`folder-rollup ${rollupFlash ? 'flash' : ''}`}>
             {doneCount}/{docs.length} read
             {folderMinutesLeft > 0 && <span> · ~{folderMinutesLeft} min left</span>}
           </div>
+        )}
+        {cheapest && (
+          <a class="cheapest-win" href={`#/${cheapest.entry.path}`}>
+            closest to done: {cheapest.entry.name} · ~{cheapest.min} min
+          </a>
         )}
         <input
           ref={filterInputRef}
@@ -677,13 +799,17 @@ export function App() {
       </aside>
 
       {doc && sections.length > 0 && (
-        <div class={`progress-bar ${justCompleted ? 'complete' : ''}`} aria-hidden="true">
+        <div class={`progress-bar ${justCompleted || folderClear ? 'complete' : ''}`} aria-hidden="true">
           {sections.map((s) => {
             const p = t.progress.get(s.id);
             const fill = t.fillFraction(s.id) * 100;
+            const frontier = !p?.read && fill > 0 && fill < 100;
             return (
               <div key={s.id} class="progress-segment" style={{ flexGrow: Math.max(1, s.wordCount) }}>
-                <div class={`progress-fill ${p?.read ? 'read' : ''}`} style={{ width: `${fill}%` }} />
+                <div
+                  class={`progress-fill ${p?.read ? 'read' : ''} ${frontier ? 'frontier' : ''}`}
+                  style={{ width: `${fill}%` }}
+                />
               </div>
             );
           })}
@@ -696,6 +822,9 @@ export function App() {
             <div class="doc-meta">
               <span class="doc-path">{doc.path}</span>
               <span class="doc-meta-right">
+                {metaFlash && <span class="meta-flash" key={metaFlash}>{metaFlash}</span>}
+                {finalStretch && <span class="final-stretch">final section</span>}
+                <span class="doc-odometer">{wordsPassed.toLocaleString()} words</span>
                 <span class="doc-minutes">
                   {minutesLeft <= 0 ? 'done' : `~${minutesLeft} min left`}
                 </span>
@@ -717,6 +846,14 @@ export function App() {
             {justCompleted && (
               <div class="complete-pill">
                 <span class="complete-check">✓</span> document complete
+                {paceOk && (
+                  <span class="complete-pace">
+                    · ~{Math.max(1, Math.round(readElapsedMs / 60_000))} min · {paceWpm} wpm
+                  </span>
+                )}
+                {sessionCompletions.current >= 2 && (
+                  <span class="complete-chain">· {nth(sessionCompletions.current)} this session</span>
+                )}
                 {nextUp && (
                   <span class="complete-next">
                     · <kbd>n</kbd> next: {nextUp.name} (~{Math.max(1, Math.round((nextUp.wordCount - (fileStateOf(nextUp.path)?.readWords ?? 0)) / wpm.current))} min)
@@ -743,7 +880,7 @@ export function App() {
               <a
                 key={s.id}
                 href={`#${s.id}`}
-                class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''}`}
+                class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''}`}
                 onClick={(event) => {
                   event.preventDefault();
                   document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' });
@@ -756,6 +893,8 @@ export function App() {
           })}
         </nav>
       )}
+
+      {folderClear && <div class="folder-clear-banner">{folderClear}</div>}
 
       {ruler !== 'off' && (
         <div class="reading-ruler" aria-hidden="true">

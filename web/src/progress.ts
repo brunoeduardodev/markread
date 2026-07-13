@@ -180,4 +180,9 @@ export class ProgressTracker {
       return sum + s.wordCount * (1 - this.fillFraction(s.id));
     }, 0);
   }
+
+  /** Words the reading line has passed — the odometer. */
+  passedWords(): number {
+    return this.sections.reduce((sum, s) => sum + s.wordCount * this.fillFraction(s.id), 0);
+  }
 }
