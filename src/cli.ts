@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import getPort from 'get-port';
 import open from 'open';
 import { startServer } from './server.js';
+import { isMarkdown } from './scan.js';
 
 const PREFERRED_PORT = 4400;
 
@@ -23,7 +24,8 @@ function parseArgs(argv: string[]) {
 const HELP = `markread — a reading experience for your Markdown
 
 Usage:
-  markread [path]        read the markdown in a folder (default: .)
+  markread [path]        read Markdown in a folder or open a Markdown file
+                         directly (default: .)
 
 Options:
   -p, --port <n>         preferred port (default: ${PREFERRED_PORT})
@@ -46,18 +48,32 @@ async function main() {
     return;
   }
 
-  const root = resolve(args.path);
-  if (!existsSync(root) || !statSync(root).isDirectory()) {
-    console.error(`markread: not a directory: ${root}`);
+  const target = resolve(args.path);
+  if (!existsSync(target)) {
+    console.error(`markread: not found: ${target}`);
+    process.exit(1);
+  }
+  const stats = statSync(target);
+  if (!stats.isDirectory() && !stats.isFile()) {
+    console.error(`markread: not a file or directory: ${target}`);
+    process.exit(1);
+  }
+  if (stats.isFile() && !isMarkdown(target)) {
+    console.error(`markread: not a Markdown file: ${target}`);
     process.exit(1);
   }
 
+  // The reader operates on a directory so the sidebar can still show nearby
+  // documents. A file target simply starts the app at that file.
+  const root = stats.isDirectory() ? target : dirname(target);
+  const initialDoc = stats.isFile() ? relative(root, target).split(sep).join('/') : undefined;
+
   const port = await getPort({ port: args.port ?? PREFERRED_PORT });
   const server = await startServer(root, port);
-  const url = `http://localhost:${port}`;
+  const url = `http://localhost:${port}${initialDoc ? `/#/${encodeURIComponent(initialDoc)}` : ''}`;
 
   console.log();
-  console.log(`  \x1b[1mmarkread\x1b[0m reading \x1b[36m${root}\x1b[0m`);
+  console.log(`  \x1b[1mmarkread\x1b[0m reading \x1b[36m${target}\x1b[0m`);
   console.log(`  \x1b[2m→\x1b[0m ${url}`);
   console.log();
 
