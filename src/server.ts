@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Server as HttpServer } from 'node:http';
@@ -44,12 +44,36 @@ export interface MarkreadServer {
   close: () => Promise<void>;
 }
 
-export async function startServer(root: string, port: number): Promise<MarkreadServer> {
+export async function startServer(initialRoot: string, port: number, controlToken: string): Promise<MarkreadServer> {
   await initRenderer();
   const appState = await loadState();
+  let root = initialRoot;
 
   const app = new Hono();
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'web');
+
+  app.post('/api/session', async (c) => {
+    if (c.req.header('x-markread-instance') !== controlToken) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.root !== 'string') return c.json({ error: 'bad request' }, 400);
+
+    const nextRoot = resolve(body.root);
+    if (!existsSync(nextRoot) || !statSync(nextRoot).isDirectory()) {
+      return c.json({ error: 'root not found' }, 404);
+    }
+    const initialDoc = typeof body.initialDoc === 'string' ? body.initialDoc : undefined;
+    if (initialDoc) {
+      const doc = resolve(nextRoot, initialDoc);
+      if ((doc !== nextRoot && !doc.startsWith(nextRoot + sep)) || !isMarkdown(doc) || !existsSync(doc)) {
+        return c.json({ error: 'document not found' }, 404);
+      }
+    }
+
+    await switchRoot(nextRoot, initialDoc);
+    return c.json({ root });
+  });
 
   app.get('/api/tree', async (c) => {
     const docs = await scanDocs(root);
@@ -184,17 +208,31 @@ export async function startServer(root: string, port: number): Promise<MarkreadS
     }
   };
 
-  const watcher = chokidar.watch(root, {
-    ignored: (path, stats) =>
-      path.split(sep).some((part) => part.startsWith('.') || part === 'node_modules' || part === 'dist') ||
-      Boolean(stats?.isFile() && !isMarkdown(path)),
-    ignoreInitial: true,
-  });
+  const watchRoot = (watchedRoot: string) => {
+    const watcher = chokidar.watch(watchedRoot, {
+      ignored: (path, stats) =>
+        path.split(sep).some((part) => part.startsWith('.') || part === 'node_modules' || part === 'dist') ||
+        Boolean(stats?.isFile() && !isMarkdown(path)),
+      ignoreInitial: true,
+    });
+    const relOf = (path: string) => resolve(path).slice(watchedRoot.length + 1).split(sep).join('/');
+    watcher.on('change', (path) => broadcast({ type: 'change', path: relOf(path) }));
+    watcher.on('add', () => broadcast({ type: 'tree' }));
+    watcher.on('unlink', () => broadcast({ type: 'tree' }));
+    return watcher;
+  };
 
-  const relOf = (path: string) => resolve(path).slice(root.length + 1).split(sep).join('/');
-  watcher.on('change', (path) => broadcast({ type: 'change', path: relOf(path) }));
-  watcher.on('add', () => broadcast({ type: 'tree' }));
-  watcher.on('unlink', () => broadcast({ type: 'tree' }));
+  let watcher = watchRoot(root);
+  const switchRoot = async (nextRoot: string, initialDoc?: string) => {
+    if (nextRoot !== root) {
+      await watcher.close();
+      root = nextRoot;
+      watcher = watchRoot(root);
+    }
+    // Existing tabs follow a later CLI invocation too, avoiding a stale tab
+    // that points at an unrelated folder after the handoff.
+    broadcast({ type: 'root', path: initialDoc });
+  };
 
   return {
     port,

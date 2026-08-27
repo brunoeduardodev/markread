@@ -354,6 +354,16 @@ export function App() {
     setDocs(data.docs);
   }, []);
 
+  const hydrateState = useCallback(async () => {
+    const stateRes = await fetch('/api/state').then((r) => r.json());
+    filesState.current = stateRes.files ?? {};
+    wpm.current = stateRes.wpm ?? 238;
+    const hydrated = sanitizeSettings(stateRes.settings);
+    lastPersistedSettings.current = JSON.stringify(hydrated);
+    settingsHydrated.current = true;
+    setSettings(hydrated);
+  }, []);
+
   const loadDoc = useCallback(async (path: string, preserveScroll = false) => {
     if (!path) return;
     const scrollBefore = window.scrollY;
@@ -483,23 +493,13 @@ export function App() {
   // Initial load: tree + reading state. loadDoc awaits stateReady, so the
   // first document render always sees persisted progress.
   useEffect(() => {
-    stateReady.current = fetch('/api/state')
-      .then((r) => r.json())
-      .then((stateRes) => {
-        filesState.current = stateRes.files ?? {};
-        wpm.current = stateRes.wpm ?? 238;
-        const hydrated = sanitizeSettings(stateRes.settings);
-        lastPersistedSettings.current = JSON.stringify(hydrated);
-        settingsHydrated.current = true;
-        setSettings(hydrated);
-      })
-      .catch(() => {});
+    stateReady.current = hydrateState().catch(() => {});
     loadTree();
 
     const onHash = () => setActive(currentHashPath());
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
-  }, [loadTree]);
+  }, [hydrateState, loadTree]);
 
   // Default to first doc (prefer README) when nothing selected
   useEffect(() => {
@@ -625,6 +625,15 @@ export function App() {
           loadDoc(msg.path, true); // preserve scroll — agents rewrite files mid-read
         } else if (msg.type === 'tree') {
           loadTree();
+        } else if (msg.type === 'root') {
+          // A later `markread path` call repoints the shared server. Reload
+          // both root-scoped progress and the file tree before navigating.
+          hydrateState()
+            .then(loadTree)
+            .then(() => {
+              location.hash = typeof msg.path === 'string' ? `#/${msg.path}` : '';
+            })
+            .catch(() => {});
         }
       };
       ws.onclose = () => {
@@ -636,7 +645,7 @@ export function App() {
       closed = true;
       ws?.close();
     };
-  }, [loadDoc, loadTree]);
+  }, [hydrateState, loadDoc, loadTree]);
 
   // In-document anchor links (footnotes, etc.) scroll instead of breaking
   // the #/file hash routing.

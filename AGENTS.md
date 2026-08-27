@@ -297,6 +297,10 @@ progress bar spans the pane at viewport top. Breakpoints: <1180px hides rail
   actual behavior (scroll positions, class changes, state file contents) → commit.
 - Commit style: imperative subject, body explains the *why* and records
   verification; one logical change per commit.
+- **Git delivery:** work directly on `main`; do not create feature branches.
+  After verification, commit the completed change on `main` and push it with
+  `git push master main`. If the `master` remote is unavailable or the push is
+  rejected, report that fact and do not push to a different remote or branch.
 - Multi-agent pattern that worked: an orchestrator specs arcs precisely (file
   boundaries, hard rules: no git/no builds/no servers, typecheck only) for
   worker agents on disjoint file surfaces, then wires the seams, verifies

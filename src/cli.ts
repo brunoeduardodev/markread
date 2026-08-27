@@ -3,8 +3,10 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { existsSync, statSync } from 'node:fs';
 import getPort from 'get-port';
 import open from 'open';
+import { randomUUID } from 'node:crypto';
 import { startServer } from './server.js';
 import { isMarkdown } from './scan.js';
+import { clearServerInstance, getServerInstance, saveServerInstance, type ServerInstance } from './instance.js';
 
 const PREFERRED_PORT = 4400;
 
@@ -33,6 +35,26 @@ Options:
   -h, --help             show this help
   -v, --version          show version
 `;
+
+function readerUrl(port: number, initialDoc?: string): string {
+  return `http://localhost:${port}${initialDoc ? `/#/${encodeURIComponent(initialDoc)}` : ''}`;
+}
+
+/** Ask the live server to begin serving another folder. A token from the
+    owner-only handoff record keeps this localhost control route private. */
+async function handOffToServer(instance: ServerInstance, root: string, initialDoc?: string): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${instance.port}/api/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-markread-instance': instance.token },
+      body: JSON.stringify({ root, initialDoc }),
+      signal: AbortSignal.timeout(1000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -68,9 +90,25 @@ async function main() {
   const root = stats.isDirectory() ? target : dirname(target);
   const initialDoc = stats.isFile() ? relative(root, target).split(sep).join('/') : undefined;
 
+  // Every invocation shares one server. If its owner has exited unexpectedly,
+  // discard the stale record and start a fresh instance below.
+  const existing = await getServerInstance();
+  if (existing && await handOffToServer(existing, root, initialDoc)) {
+    const url = readerUrl(existing.port, initialDoc);
+    console.log();
+    console.log(`  \x1b[1mmarkread\x1b[0m reading \x1b[36m${target}\x1b[0m`);
+    console.log(`  \x1b[2m→\x1b[0m ${url} \x1b[2m(existing server)\x1b[0m`);
+    console.log();
+    if (args.open) await open(url);
+    return;
+  }
+  if (existing) await clearServerInstance(existing.token);
+
   const port = await getPort({ port: args.port ?? PREFERRED_PORT });
-  const server = await startServer(root, port);
-  const url = `http://localhost:${port}${initialDoc ? `/#/${encodeURIComponent(initialDoc)}` : ''}`;
+  const token = randomUUID();
+  const server = await startServer(root, port, token);
+  await saveServerInstance({ port, token });
+  const url = readerUrl(port, initialDoc);
 
   console.log();
   console.log(`  \x1b[1mmarkread\x1b[0m reading \x1b[36m${target}\x1b[0m`);
@@ -81,6 +119,7 @@ async function main() {
 
   const shutdown = async () => {
     await server.close();
+    await clearServerInstance(token);
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
