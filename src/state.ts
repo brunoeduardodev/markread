@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 export interface SectionState {
   dwellMs: number;
@@ -23,6 +23,15 @@ interface RootState {
   files: Record<string, FileState>;
 }
 
+/** A saved reading root. These live outside a root's file state so a folder
+    remains reachable even when another workspace is currently open. */
+export interface FavoriteWorkspace {
+  path: string;
+  name: string;
+  addedAt: number;
+  lastOpenedAt: number;
+}
+
 export interface AppState {
   version: 1;
   /** Calibrated words-per-minute; starts at the Brysbaert 2019 norm. */
@@ -32,6 +41,7 @@ export interface AppState {
   /** Reserved for stats/heatmap (P1): ISO date → totals. */
   daily: Record<string, { wordsRead: number; msRead: number }>;
   roots: Record<string, RootState>;
+  favorites: FavoriteWorkspace[];
 }
 
 const STATE_FILE = join(homedir(), '.markread', 'state.json');
@@ -41,7 +51,7 @@ let state: AppState | undefined;
 let writeTimer: ReturnType<typeof setTimeout> | undefined;
 
 function emptyState(): AppState {
-  return { version: 1, wpm: 238, wpmSamples: [], settings: {}, daily: {}, roots: {} };
+  return { version: 1, wpm: 238, wpmSamples: [], settings: {}, daily: {}, roots: {}, favorites: [] };
 }
 
 export async function loadState(): Promise<AppState> {
@@ -49,6 +59,9 @@ export async function loadState(): Promise<AppState> {
   try {
     const parsed = JSON.parse(await readFile(STATE_FILE, 'utf8'));
     state = parsed?.version === 1 ? (parsed as AppState) : emptyState();
+    // v1 state files predate saved workspaces. Keep the version stable and
+    // migrate lazily so existing readers retain all of their progress.
+    if (!Array.isArray(state.favorites)) state.favorites = [];
   } catch {
     state = emptyState(); // missing or corrupt — start fresh, never crash
   }
@@ -58,6 +71,53 @@ export async function loadState(): Promise<AppState> {
 export function getRootFiles(root: string): Record<string, FileState> {
   if (!state) throw new Error('state not loaded');
   return state.roots[root]?.files ?? {};
+}
+
+/** Saved folders, newest opened first. Return copies so route consumers can't
+    mutate the in-memory state without going through these persistence helpers. */
+export function getFavorites(): FavoriteWorkspace[] {
+  if (!state) throw new Error('state not loaded');
+  return [...state.favorites].sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
+}
+
+export function favoriteRoot(root: string): FavoriteWorkspace {
+  if (!state) throw new Error('state not loaded');
+  const now = Date.now();
+  const existing = state.favorites.find((favorite) => favorite.path === root);
+  if (existing) {
+    existing.lastOpenedAt = now;
+    schedulePersist();
+    return existing;
+  }
+  const favorite = {
+    path: root,
+    name: basename(root) || root,
+    addedAt: now,
+    lastOpenedAt: now,
+  };
+  state.favorites.push(favorite);
+  schedulePersist();
+  return favorite;
+}
+
+/** Update recency only for a saved root. Opening arbitrary filesystem paths
+    remains a CLI capability, never a browser API. */
+export function touchFavorite(root: string): FavoriteWorkspace | undefined {
+  if (!state) throw new Error('state not loaded');
+  const favorite = state.favorites.find((entry) => entry.path === root);
+  if (!favorite) return undefined;
+  favorite.lastOpenedAt = Date.now();
+  schedulePersist();
+  return favorite;
+}
+
+export function removeFavorite(root: string): boolean {
+  if (!state) throw new Error('state not loaded');
+  const index = state.favorites.findIndex((favorite) => favorite.path === root);
+  if (index === -1) return false;
+  state.favorites.splice(index, 1);
+  schedulePersist();
+  return true;
 }
 
 const emptyFile = (): FileState => ({

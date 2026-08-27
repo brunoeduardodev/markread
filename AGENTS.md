@@ -1,7 +1,7 @@
 # markread — Agent Handoff
 
 > Exhaustive project handoff for any agent (or human) picking up this codebase.
-> Last updated: 2026-07-15. Everything here was verified against the code at
+> Last updated: 2026-08-27. Everything here was verified against the code at
 > that date. Companion documents: [REQUIREMENTS.md](./REQUIREMENTS.md) (product
 > spec), [RESEARCH.md](./RESEARCH.md) (evidence base with citations).
 
@@ -85,6 +85,10 @@ dist/cli.js . --port 4400 &`, then verify in a real browser.
 | `GET /api/tree` | `{ root, docs: [{path, name, dir, wordCount}], wpm }` — wordCount computed per file on each call (reads every file; fine at typical folder sizes) |
 | `GET /api/doc?path=rel` | Renders one doc: `{ path, html, headings:[{level,text,id,wordCount}], wordCount, title, hasMath, minutes }`. Path-traversal guarded (`resolve` + `startsWith(root+sep)`), 404 unless `.md`/`.markdown` |
 | `GET /api/state` | `{ wpm, settings, files }` for this server's root |
+| `GET /api/favorites` | Globally persisted saved workspaces, most recently opened first |
+| `POST /api/favorites` | Save the currently served root as a workspace favorite |
+| `POST /api/favorites/open` | Switch to a previously saved root; never accepts an arbitrary filesystem path |
+| `DELETE /api/favorites?path=abs` | Remove one saved workspace (does not affect its reading progress) |
 | `POST /api/state/file` | Progress patch: `{ path, scrollY?, sections?, completed?, wordCount?, readWords?, wpmSamples?: number[] }`. Merge semantics in §5. Returns merged FileState + current `wpm`. Also receives `sendBeacon` on pagehide |
 | `DELETE /api/state/file?path=rel` | Forget one file's progress entirely |
 | `POST /api/state/settings` | Shallow-merge any object into global settings (forward-compatible); returns merged settings |
@@ -131,6 +135,12 @@ crash.
   "wpmSamples": [],        // last 50 samples, ONLY once ≥5 samples, clamp 120–600
   "settings": {},          // reading typography prefs (see §7 Settings)
   "daily": {},             // RESERVED for P1 stats/heatmap: ISO date → {wordsRead, msRead}
+  "favorites": [{          // globally saved workspace roots (independent of progress)
+    "path": "/abs/folder",
+    "name": "folder",
+    "addedAt": 0,
+    "lastOpenedAt": 0
+  }],
   "roots": {
     "/abs/served/root": { "files": {
       "rel/path.md": {
@@ -282,7 +292,7 @@ on hydration): `{ font: literata|atkinson|system-serif|system-sans, size:
 default/cozy/airy/compact. **Constraint**: `relaxed` scales letter AND word
 spacing together — letter-only spacing measurably hurts reading (RESEARCH.md).
 
-Layout: left sidebar 17rem (brand / rollup / cheapest-win / filter / file list
+Layout: left sidebar 17rem (brand + save-folder star / saved-folder list / rollup / cheapest-win / filter / file list
 / footer with settings toggle + theme name) · center reading pane (sticky meta
 bar top, article at measure, pills fixed bottom-center) · right rail 22rem
 (TOC quest log scrolls, 280px ring pinned bottom). Fixed 4px segmented

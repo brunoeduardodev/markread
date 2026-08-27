@@ -9,7 +9,19 @@ import { WebSocketServer, WebSocket } from 'ws';
 import chokidar from 'chokidar';
 import { scanDocs, isMarkdown } from './scan.js';
 import { initRenderer, renderDoc, countWords } from './render.js';
-import { loadState, getRootFiles, patchFileState, resetFileState, flushState, addWpmSample, patchSettings } from './state.js';
+import {
+  loadState,
+  getRootFiles,
+  patchFileState,
+  resetFileState,
+  flushState,
+  addWpmSample,
+  patchSettings,
+  favoriteRoot,
+  getFavorites,
+  removeFavorite,
+  touchFavorite,
+} from './state.js';
 
 /** Brysbaert 2019 meta-analysis: adult silent reading, non-fiction. */
 const WPM_DEFAULT = 238;
@@ -51,6 +63,37 @@ export async function startServer(initialRoot: string, port: number, controlToke
 
   const app = new Hono();
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'web');
+
+  // Favorites intentionally expose only roots already saved in the local
+  // state file. The browser can reopen a saved workspace, but cannot turn
+  // this localhost route into an arbitrary filesystem browser.
+  app.get('/api/favorites', (c) => c.json({ favorites: getFavorites() }));
+
+  app.post('/api/favorites', (c) => c.json({ favorite: favoriteRoot(root) }));
+
+  app.delete('/api/favorites', (c) => {
+    const path = c.req.query('path');
+    if (!path) return c.json({ error: 'missing path' }, 400);
+    return removeFavorite(path) ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+  });
+
+  app.post('/api/favorites/open', async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.path !== 'string') return c.json({ error: 'bad request' }, 400);
+    const favorite = getFavorites().find((entry) => entry.path === body.path);
+    if (!favorite) return c.json({ error: 'not found' }, 404);
+    try {
+      if (!existsSync(favorite.path) || !statSync(favorite.path).isDirectory()) {
+        return c.json({ error: 'folder not found' }, 404);
+      }
+    } catch {
+      return c.json({ error: 'folder not found' }, 404);
+    }
+
+    touchFavorite(favorite.path);
+    await switchRoot(favorite.path);
+    return c.json({ root });
+  });
 
   app.post('/api/session', async (c) => {
     if (c.req.header('x-markread-instance') !== controlToken) {

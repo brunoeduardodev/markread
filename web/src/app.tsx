@@ -32,6 +32,13 @@ interface FileState {
   readWords: number;
 }
 
+interface FavoriteWorkspace {
+  path: string;
+  name: string;
+  addedAt: number;
+  lastOpenedAt: number;
+}
+
 const THEMES = ['light', 'vesper', 'tokyo-night'] as const;
 type Theme = (typeof THEMES)[number];
 
@@ -262,6 +269,9 @@ export function App() {
   const [filterQuery, setFilterQuery] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [favorites, setFavorites] = useState<FavoriteWorkspace[]>([]);
+  const [currentRoot, setCurrentRoot] = useState('');
+  const [favoriteError, setFavoriteError] = useState<string | null>(null);
 
   const tracker = useRef(new ProgressTracker());
   // Dev affordance: inspectable from the browser console.
@@ -352,6 +362,14 @@ export function App() {
     const res = await fetch('/api/tree');
     const data = await res.json();
     setDocs(data.docs);
+    setCurrentRoot(typeof data.root === 'string' ? data.root : '');
+  }, []);
+
+  const loadFavorites = useCallback(async () => {
+    const res = await fetch('/api/favorites');
+    if (!res.ok) return;
+    const data = await res.json();
+    setFavorites(Array.isArray(data.favorites) ? data.favorites : []);
   }, []);
 
   const hydrateState = useCallback(async () => {
@@ -363,6 +381,46 @@ export function App() {
     settingsHydrated.current = true;
     setSettings(hydrated);
   }, []);
+
+  const toggleFavorite = useCallback(async () => {
+    if (!currentRoot) return;
+    setFavoriteError(null);
+    const saved = favorites.some((favorite) => favorite.path === currentRoot);
+    const response = await fetch(saved ? `/api/favorites?path=${encodeURIComponent(currentRoot)}` : '/api/favorites', {
+      method: saved ? 'DELETE' : 'POST',
+    }).catch(() => null);
+    if (!response?.ok) {
+      setFavoriteError(saved ? 'could not remove saved folder' : 'could not save folder');
+      return;
+    }
+    await loadFavorites();
+  }, [currentRoot, favorites, loadFavorites]);
+
+  const openFavorite = useCallback(async (path: string) => {
+    if (path === currentRoot) return;
+    setFavoriteError(null);
+    const response = await fetch('/api/favorites/open', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }).catch(() => null);
+    if (!response?.ok) {
+      const data = response ? await response.json().catch(() => null) : null;
+      setFavoriteError(data?.error === 'folder not found' ? 'folder is no longer available' : 'could not open folder');
+      return;
+    }
+    await loadFavorites();
+  }, [currentRoot, loadFavorites]);
+
+  const forgetFavorite = useCallback(async (path: string) => {
+    setFavoriteError(null);
+    const response = await fetch(`/api/favorites?path=${encodeURIComponent(path)}`, { method: 'DELETE' }).catch(() => null);
+    if (!response?.ok) {
+      setFavoriteError('could not remove saved folder');
+      return;
+    }
+    await loadFavorites();
+  }, [loadFavorites]);
 
   const loadDoc = useCallback(async (path: string, preserveScroll = false) => {
     if (!path) return;
@@ -495,11 +553,12 @@ export function App() {
   useEffect(() => {
     stateReady.current = hydrateState().catch(() => {});
     loadTree();
+    loadFavorites();
 
     const onHash = () => setActive(currentHashPath());
     addEventListener('hashchange', onHash);
     return () => removeEventListener('hashchange', onHash);
-  }, [hydrateState, loadTree]);
+  }, [hydrateState, loadTree, loadFavorites]);
 
   // Default to first doc (prefer README) when nothing selected
   useEffect(() => {
@@ -628,10 +687,22 @@ export function App() {
         } else if (msg.type === 'root') {
           // A later `markread path` call repoints the shared server. Reload
           // both root-scoped progress and the file tree before navigating.
+          // Clear the previous document first: its rendered HTML belongs to
+          // the old filesystem root and must never linger in a new workspace.
+          const nextPath = typeof msg.path === 'string' ? msg.path : '';
+          tracker.current.stop();
+          docRef.current = null;
+          setDoc(null);
+          setActiveSection(null);
+          setJustCompleted(false);
           hydrateState()
             .then(loadTree)
+            .then(loadFavorites)
             .then(() => {
-              location.hash = typeof msg.path === 'string' ? `#/${msg.path}` : '';
+              location.hash = nextPath ? `#/${nextPath}` : '';
+              // Hashchange does not fire when a tab is already at the target
+              // hash, so make the routing state explicit as well.
+              setActive(nextPath);
             })
             .catch(() => {});
         }
@@ -780,6 +851,7 @@ export function App() {
   const filteredDocs = filterQuery
     ? docs.filter((d) => d.path.toLowerCase().includes(filterQuery.toLowerCase()))
     : docs;
+  const currentFavorite = favorites.some((favorite) => favorite.path === currentRoot);
 
   // Rollup flash on any completion; folder-clear moment when the set closes.
   useEffect(() => {
@@ -821,8 +893,49 @@ export function App() {
     <div class={`layout ${focusLevel >= 1 ? 'focus' : ''} ${focusLevel === 2 ? 'focus-dim' : ''}`}>
       <aside class="sidebar">
         <header class="brand">
-          <span class="brand-mark">mark</span>read
+          <span><span class="brand-mark">mark</span>read</span>
+          <button
+            class={`favorite-toggle ${currentFavorite ? 'saved' : ''}`}
+            onClick={toggleFavorite}
+            title={currentFavorite ? 'Remove this folder from saved folders' : 'Save this folder for quick reopening'}
+            aria-label={currentFavorite ? 'Remove this folder from saved folders' : 'Save this folder for quick reopening'}
+            aria-pressed={currentFavorite}
+          >
+            {currentFavorite ? '★' : '☆'}
+          </button>
         </header>
+        {(favorites.length > 0 || favoriteError) && (
+          <section class="favorites" aria-label="Saved folders">
+            <div class="favorites-title">saved folders</div>
+            <div class="favorites-list">
+              {favorites.map((favorite) => {
+                const isCurrent = favorite.path === currentRoot;
+                return (
+                  <div key={favorite.path} class={`favorite-row ${isCurrent ? 'current' : ''}`}>
+                    <button
+                      class="favorite-open"
+                      onClick={() => openFavorite(favorite.path)}
+                      disabled={isCurrent}
+                      title={favorite.path}
+                    >
+                      <span class="favorite-name">{favorite.name}</span>
+                      {isCurrent && <span class="favorite-current">open</span>}
+                    </button>
+                    <button
+                      class="favorite-remove"
+                      onClick={() => forgetFavorite(favorite.path)}
+                      title={`Remove ${favorite.name} from saved folders`}
+                      aria-label={`Remove ${favorite.name} from saved folders`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {favoriteError && <div class="favorite-error">{favoriteError}</div>}
+          </section>
+        )}
         {docs.length > 0 && (
           <div class={`folder-rollup ${rollupFlash ? 'flash' : ''}`}>
             {doneCount}/{docs.length} read
