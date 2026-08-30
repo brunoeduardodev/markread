@@ -210,8 +210,9 @@ All state lives in one `App()` component. Notable mechanics:
   - `j`/`k` = velocity slide: hold → constant 170 px/s via rAF (`startSlide`/
     `stopSlide`), release (keyup) → instant stop; wheel/touch/window-blur
     cancels. Tap ≈ one-line nudge.
-  - `g`/`G`, `[`/`]`, TOC clicks = eased glide (`scroller` accumulating target,
-    16%-of-remaining per frame). Wheel/touch cancels ("the mouse always wins").
+  - `g`/`G`, `[`/`]`, TOC clicks = browser-native smooth scroll. Wheel/touch
+    cancels ("the mouse always wins"); `prefers-reduced-motion` makes those
+    jumps immediate.
 - **Keyboard map** (single guarded handler; INPUT/TEXTAREA targets and
   meta/ctrl/alt combos are ignored): `j/k` slide · `n/p` next/prev file (n
   jumps to next *unread* once current doc is completed) · `[/]` sections ·

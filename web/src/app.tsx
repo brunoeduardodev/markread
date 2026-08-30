@@ -116,50 +116,43 @@ function currentHashPath(): string {
   return decodeURIComponent(location.hash.replace(/^#\//, ''));
 }
 
-/**
- * Butter scroller: j/k accumulate into a target position and a rAF loop
- * eases toward it (fixed fraction of remaining distance per frame).
- * Repeated/held keys extend the target instead of restarting an animation.
- */
 // We own scroll restoration: resume comes from reading state, not the browser.
 history.scrollRestoration = 'manual';
 
-const scroller = { target: 0, active: false };
+function reducedMotion() {
+  return matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/**
+ * Let the browser animate programmatic reading jumps. Native scrolling stays
+ * smooth at any refresh rate and is interruptible by a wheel or touch input.
+ */
+function readerScrollTo(y: number) {
+  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
+  window.scrollTo({
+    top: Math.max(0, Math.min(maxScroll, y)),
+    behavior: reducedMotion() ? 'instant' : 'smooth',
+  });
+}
+
+function readerScrollToElement(element: HTMLElement | null) {
+  if (!element) return;
+  element.scrollIntoView({
+    block: 'start',
+    behavior: reducedMotion() ? 'instant' : 'smooth',
+  });
+}
 
 // The mouse always wins: any real scroll input cancels the keyboard glide,
-// otherwise the rAF loop fights the wheel and drags the page back.
+// otherwise a programmatic jump can keep moving after the reader takes over.
 for (const cancelEvent of ['wheel', 'touchstart'] as const) {
   addEventListener(cancelEvent, () => {
-    scroller.active = false;
     stopSlide();
+    window.scrollTo({ top: window.scrollY, behavior: 'instant' });
   }, { passive: true });
 }
 // A slide must never outlive its keypress (e.g. tab switch mid-hold).
 addEventListener('blur', () => stopSlide());
-
-function runGlide() {
-  scroller.active = true;
-  const step = () => {
-    if (!scroller.active) return; // cancelled by wheel/touch
-    const remaining = scroller.target - window.scrollY;
-    if (Math.abs(remaining) < 0.5) {
-      window.scrollTo({ top: scroller.target, behavior: 'instant' });
-      scroller.active = false;
-      return;
-    }
-    window.scrollTo({ top: window.scrollY + remaining * 0.16, behavior: 'instant' });
-    requestAnimationFrame(step);
-  };
-  requestAnimationFrame(step);
-}
-
-function smoothScrollBy(delta: number) {
-  if (!scroller.active) scroller.target = window.scrollY;
-  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-  scroller.target = Math.max(0, Math.min(maxScroll, scroller.target + delta));
-  if (scroller.active) return;
-  runGlide();
-}
 
 /**
  * j/k slide: hold to scroll at a constant, followable velocity — text flows
@@ -174,7 +167,7 @@ function startSlide(dir: -1 | 1) {
   const wasIdle = slide.dir === 0;
   slide.dir = dir;
   if (!wasIdle) return; // direction change mid-slide: just steer
-  scroller.active = false; // a slide supersedes any pending glide
+  window.scrollTo({ top: window.scrollY, behavior: 'instant' }); // a slide supersedes any pending jump
   slide.lastT = performance.now();
   const step = (t: number) => {
     if (slide.dir === 0) return;
@@ -193,10 +186,7 @@ function stopSlide() {
 
 /** Glide straight to an absolute position (used by g/G). */
 function smoothScrollTo(y: number) {
-  const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
-  scroller.target = Math.max(0, Math.min(maxScroll, y));
-  if (scroller.active) return;
-  runGlide();
+  readerScrollTo(y);
 }
 
 /** Focus level 2: mark the direct child of .doc-content nearest the reading
@@ -733,7 +723,7 @@ export function App() {
     const href = anchor?.getAttribute('href');
     if (href?.startsWith('#') && !href.startsWith('#/')) {
       event.preventDefault();
-      document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({ behavior: 'smooth' });
+      readerScrollToElement(document.getElementById(decodeURIComponent(href.slice(1))));
     }
   }, []);
 
@@ -767,7 +757,7 @@ export function App() {
         const nextIdx = event.key === ']'
           ? Math.min(headingSections.length - 1, idx + 1)
           : Math.max(0, idx - 1);
-        document.getElementById(headingSections[nextIdx].id)?.scrollIntoView({ behavior: 'smooth' });
+        readerScrollToElement(document.getElementById(headingSections[nextIdx].id));
       } else if (event.key === 'g') smoothScrollTo(0);
       else if (event.key === 'G') smoothScrollTo(document.documentElement.scrollHeight);
       else if (event.key === 'f') setFocusLevel((l) => (l + 1) % 3);
@@ -1086,7 +1076,7 @@ export function App() {
                   class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''}`}
                   onClick={(event) => {
                     event.preventDefault();
-                    document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' });
+                    readerScrollToElement(document.getElementById(s.id));
                   }}
                 >
                   <span class="toc-tick" />
