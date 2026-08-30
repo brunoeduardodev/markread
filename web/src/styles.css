@@ -918,15 +918,13 @@ body,
   border: 1px solid var(--rule);
   border-radius: 6px;
   background: var(--paper-raised);
-  box-shadow: 0 12px 32px color-mix(in srgb, var(--ink) 9%, transparent);
   overflow: clip;
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 140ms ease;
 }
 
 .doc-content .markdown-disclosure:hover,
 .doc-content .markdown-disclosure[open] {
   border-color: color-mix(in srgb, var(--ink-faint) 55%, var(--rule));
-  box-shadow: 0 14px 36px color-mix(in srgb, var(--ink) 12%, transparent);
 }
 
 .doc-content .markdown-disclosure > summary {
