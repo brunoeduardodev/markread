@@ -912,38 +912,90 @@ body,
   font-style: italic;
 }
 
-/* Safe <details>/<summary> disclosure blocks (answer keys, optional context). */
+/* Safe <details>/<summary> blocks read as index cards inside the page. */
 .doc-content .markdown-disclosure {
-  padding: 0.9em 0;
-  border-block: 1px solid var(--rule);
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper-raised) 78%, var(--paper));
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--rule) 72%, transparent);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.doc-content .markdown-disclosure:hover,
+.doc-content .markdown-disclosure[open] {
+  border-color: color-mix(in srgb, var(--marker) 38%, var(--rule));
+  box-shadow: 0 4px 0 color-mix(in srgb, var(--rule) 82%, transparent);
 }
 
 .doc-content .markdown-disclosure > summary {
+  padding: 1.05em 1.2em;
+  border-radius: 7px;
   color: var(--ink-soft);
   cursor: pointer;
   font-family: var(--font-ui);
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.035em;
-  transition: color 120ms ease;
+  list-style-position: inside;
+  transition: color 120ms ease, background-color 120ms ease;
 }
 
 .doc-content .markdown-disclosure > summary::marker {
   color: var(--marker);
 }
 
+.doc-content .markdown-disclosure > summary::after {
+  content: 'reveal';
+  float: right;
+  margin-left: 1em;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.doc-content .markdown-disclosure[open] > summary::after {
+  content: 'hide';
+}
+
 .doc-content .markdown-disclosure > summary:hover,
 .doc-content .markdown-disclosure[open] > summary {
   color: var(--ink);
+  background: color-mix(in srgb, var(--marker) 5%, transparent);
+}
+
+.doc-content .markdown-disclosure[open] > summary {
+  border-radius: 7px 7px 0 0;
+}
+
+.doc-content .markdown-disclosure > summary strong {
+  color: inherit;
 }
 
 .doc-content .markdown-disclosure > summary:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 0.3em;
+  outline-offset: -0.35em;
 }
 
 .doc-content .markdown-disclosure-body {
-  padding-top: 1em;
+  padding: 1.15em 1.25em 1.3em;
+  border-top: 1px dashed color-mix(in srgb, var(--marker) 45%, var(--rule));
+  border-radius: 0 0 7px 7px;
+  background: color-mix(in srgb, var(--paper) 72%, transparent);
+}
+
+.doc-content .markdown-disclosure-body::before {
+  content: 'answer';
+  display: block;
+  margin-bottom: 0.9em;
+  color: var(--ink-faint);
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
 }
 
 .doc-content .markdown-disclosure-body > * + * {
