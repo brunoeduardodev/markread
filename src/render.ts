@@ -40,6 +40,75 @@ interface RenderEnv {
   docDir: string;
 }
 
+/**
+ * Render a deliberately tiny, safe subset of HTML-like Markdown for native
+ * disclosure widgets. Raw HTML stays disabled everywhere else.
+ *
+ * Supported form:
+ *   <details>
+ *   <summary>Answer key</summary>
+ *
+ *   Markdown body
+ *   </details>
+ */
+function disclosureBlocks(instance: MarkdownIt): void {
+  instance.block.ruler.before('paragraph', 'disclosure', (state, startLine, endLine, silent) => {
+    const lineText = (line: number) => state.src
+      .slice(state.bMarks[line] + state.tShift[line], state.eMarks[line])
+      .trim();
+
+    const opener = lineText(startLine);
+    const openByDefault = /^<details\s+open>$/i.test(opener);
+    if (!openByDefault && !/^<details>$/i.test(opener)) return false;
+
+    const summaryLine = startLine + 1;
+    if (summaryLine >= endLine) return false;
+    const summaryMatch = lineText(summaryLine).match(/^<summary>(.*?)<\/summary>$/i);
+    if (!summaryMatch) return false;
+
+    let closeLine = summaryLine + 1;
+    while (closeLine < endLine && !/^<\/details>$/i.test(lineText(closeLine))) closeLine += 1;
+    if (closeLine >= endLine) return false;
+    if (silent) return true;
+
+    const detailsOpen = state.push('disclosure_open', 'details', 1);
+    detailsOpen.block = true;
+    detailsOpen.map = [startLine, closeLine + 1];
+    detailsOpen.attrSet('class', 'markdown-disclosure');
+    if (openByDefault) detailsOpen.attrSet('open', '');
+
+    const summaryOpen = state.push('summary_open', 'summary', 1);
+    summaryOpen.block = true;
+
+    const summary = state.push('inline', '', 0);
+    // Existing documents commonly use <strong> inside <summary>. Convert only
+    // that exact, attribute-free tag; every other HTML fragment remains text.
+    summary.content = summaryMatch[1]
+      .replace(/<strong>/gi, '**')
+      .replace(/<\/strong>/gi, '**');
+    summary.children = [];
+
+    const summaryClose = state.push('summary_close', 'summary', -1);
+    summaryClose.block = true;
+
+    const bodyOpen = state.push('disclosure_body_open', 'div', 1);
+    bodyOpen.block = true;
+    bodyOpen.attrSet('class', 'markdown-disclosure-body');
+
+    const body = state.getLines(summaryLine + 1, closeLine, state.blkIndent, false);
+    state.md.block.parse(body, state.md, state.env, state.tokens);
+
+    const bodyClose = state.push('disclosure_body_close', 'div', -1);
+    bodyClose.block = true;
+
+    const detailsClose = state.push('disclosure_close', 'details', -1);
+    detailsClose.block = true;
+
+    state.line = closeLine + 1;
+    return true;
+  });
+}
+
 let highlighter: Highlighter | undefined;
 let md: MarkdownIt | undefined;
 
@@ -93,7 +162,9 @@ export async function initRenderer(): Promise<void> {
     .use(taskLists, { enabled: false, label: true })
     .use(katex)
     // GitHub-style alerts (> [!NOTE] etc.) — no icons, mono label only, styled in styles.css.
-    .use(githubAlerts, { icons: {} });
+    .use(githubAlerts, { icons: {} })
+    // Safe native disclosures without enabling arbitrary raw HTML.
+    .use(disclosureBlocks);
 
   // Relative image srcs resolve through /raw/* against the document's directory.
   md.renderer.rules.image = (tokens, idx, options, env, self) => {

@@ -113,6 +113,8 @@ the same HTTP server. Client auto-reconnects every 1s.
   Preloaded language list in `LANGS`; unknown langs fall back to `text`.
 - ` ```mermaid ` fences bypass Shiki → `<pre class="mermaid-src"
   data-diagram="<escaped source>">` for client-side lazy rendering.
+- Exact `<details>` / `<summary>` blocks render as safe native disclosures;
+  their body is parsed as Markdown and arbitrary raw HTML remains disabled.
 - Custom renderer rules: relative image srcs rewritten to `/raw/<docDir>/…`
   (scheme/data/protocol-relative untouched; root-absolute → `/raw/…`);
   `http(s)` links get `target="_blank" rel="noopener"`.

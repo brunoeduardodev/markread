@@ -47,6 +47,7 @@ mdr [path]           # default: cwd
 - GFM: tables, task lists, strikethrough, autolinks, footnotes
 - Server-side Shiki: singleton highlighter, fine-grained language imports, JS regex engine, dual light/dark themes
 - Mermaid + KaTeX lazy-loaded on detection
+- Safe native disclosures for answer keys and optional context using `<details>` / `<summary>` blocks; the body renders as Markdown while arbitrary raw HTML remains disabled
 - Wide content (tables, code) scrolls in its own container — page never scrolls horizontally
 - Sanitize rendered HTML (AI output is untrusted input)
 - Target: 1 MB document renders < 1 s

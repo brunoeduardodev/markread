@@ -912,6 +912,44 @@ body,
   font-style: italic;
 }
 
+/* Safe <details>/<summary> disclosure blocks (answer keys, optional context). */
+.doc-content .markdown-disclosure {
+  padding: 0.9em 0;
+  border-block: 1px solid var(--rule);
+}
+
+.doc-content .markdown-disclosure > summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.035em;
+  transition: color 120ms ease;
+}
+
+.doc-content .markdown-disclosure > summary::marker {
+  color: var(--marker);
+}
+
+.doc-content .markdown-disclosure > summary:hover,
+.doc-content .markdown-disclosure[open] > summary {
+  color: var(--ink);
+}
+
+.doc-content .markdown-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0.3em;
+}
+
+.doc-content .markdown-disclosure-body {
+  padding-top: 1em;
+}
+
+.doc-content .markdown-disclosure-body > * + * {
+  margin-top: 1.1em;
+}
+
 /* Bold inside headings/quotes keeps its context color — emphasis
    tint is for body prose only. */
 .doc-content h1 strong,
