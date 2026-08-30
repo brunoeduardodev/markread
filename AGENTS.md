@@ -208,11 +208,14 @@ All state lives in one `App()` component. Notable mechanics:
   sidebar states are live.
 - **Scrolling**:
   - `j`/`k` = velocity slide: hold → constant 170 px/s via rAF (`startSlide`/
-    `stopSlide`), release (keyup) → instant stop; wheel/touch/window-blur
-    cancels. Tap ≈ one-line nudge.
-  - `g`/`G`, `[`/`]`, TOC clicks = browser-native smooth scroll. Wheel/touch
-    cancels ("the mouse always wins"); `prefers-reduced-motion` makes those
-    jumps immediate.
+    `stopSlide`), release (keyup) → instant stop; a short tap completes exactly
+    one computed body line. Wheel/touch/window-blur cancels without adding a
+    tap nudge, and natural input never issues a competing scroll command.
+  - `g`/`G` and `[`/`]` are instant keyboard jumps. Pointer TOC and in-document
+    anchor clicks remain browser-native smooth scroll; wheel/touch interrupts
+    them, and `prefers-reduced-motion` makes pointer jumps immediate.
+  - The segmented progress bar and ring track scroll directly without an
+    interpolated tail; the bar uses compositor-friendly `scaleX`.
 - **Keyboard map** (single guarded handler; INPUT/TEXTAREA targets and
   meta/ctrl/alt combos are ignored): `j/k` slide · `n/p` next/prev file (n
   jumps to next *unread* once current doc is completed) · `[/]` sections ·

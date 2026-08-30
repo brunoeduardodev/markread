@@ -123,18 +123,23 @@ function reducedMotion() {
   return matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/**
- * Let the browser animate programmatic reading jumps. Native scrolling stays
- * smooth at any refresh rate and is interruptible by a wheel or touch input.
- */
-function readerScrollTo(y: number) {
+function readerJumpTo(y: number) {
   const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
   window.scrollTo({
     top: Math.max(0, Math.min(maxScroll, y)),
-    behavior: reducedMotion() ? 'instant' : 'smooth',
+    behavior: 'instant',
   });
 }
 
+function readerJumpToElement(element: HTMLElement | null) {
+  if (!element) return;
+  element.scrollIntoView({ block: 'start', behavior: 'instant' });
+}
+
+/**
+ * Let the browser animate pointer-triggered reading jumps. Native scrolling
+ * stays smooth at any refresh rate and is interruptible by wheel or touch.
+ */
 function readerScrollToElement(element: HTMLElement | null) {
   if (!element) return;
   element.scrollIntoView({
@@ -146,10 +151,7 @@ function readerScrollToElement(element: HTMLElement | null) {
 // The mouse always wins: any real scroll input cancels the keyboard glide,
 // otherwise a programmatic jump can keep moving after the reader takes over.
 for (const cancelEvent of ['wheel', 'touchstart'] as const) {
-  addEventListener(cancelEvent, () => {
-    stopSlide();
-    window.scrollTo({ top: window.scrollY, behavior: 'instant' });
-  }, { passive: true });
+  addEventListener(cancelEvent, () => stopSlide(), { passive: true });
 }
 // A slide must never outlive its keypress (e.g. tab switch mid-hold).
 addEventListener('blur', () => stopSlide());
@@ -157,10 +159,15 @@ addEventListener('blur', () => stopSlide());
 /**
  * j/k slide: hold to scroll at a constant, followable velocity — text flows
  * through the reading ruler instead of hopping past it. Release to stop.
- * A quick tap moves about a line.
+ * A quick tap completes exactly one computed body line.
  */
 const SLIDE_PX_PER_S = 170;
-const slide = { dir: 0 as -1 | 0 | 1, raf: 0, lastT: 0 };
+const slide = { dir: 0 as -1 | 0 | 1, raf: 0, lastT: 0, distance: 0 };
+
+function readerLineHeight() {
+  const lineHeight = Number.parseFloat(getComputedStyle(document.body).lineHeight);
+  return Number.isFinite(lineHeight) ? lineHeight : 0;
+}
 
 function startSlide(dir: -1 | 1) {
   if (slide.dir === dir) return; // key repeat
@@ -169,24 +176,30 @@ function startSlide(dir: -1 | 1) {
   if (!wasIdle) return; // direction change mid-slide: just steer
   window.scrollTo({ top: window.scrollY, behavior: 'instant' }); // a slide supersedes any pending jump
   slide.lastT = performance.now();
+  slide.distance = 0;
   const step = (t: number) => {
     if (slide.dir === 0) return;
     const dt = Math.min(64, t - slide.lastT) / 1000; // clamp tab-jank spikes
     slide.lastT = t;
-    window.scrollBy({ top: slide.dir * SLIDE_PX_PER_S * dt, behavior: 'instant' });
+    const delta = slide.dir * SLIDE_PX_PER_S * dt;
+    slide.distance += Math.abs(delta);
+    window.scrollBy({ top: delta, behavior: 'instant' });
     slide.raf = requestAnimationFrame(step);
   };
   slide.raf = requestAnimationFrame(step);
 }
 
-function stopSlide() {
+function stopSlide(completeTap = false) {
+  const dir = slide.dir;
+  const remaining = completeTap && dir !== 0
+    ? Math.max(0, readerLineHeight() - slide.distance)
+    : 0;
   slide.dir = 0;
+  slide.distance = 0;
   cancelAnimationFrame(slide.raf);
-}
-
-/** Glide straight to an absolute position (used by g/G). */
-function smoothScrollTo(y: number) {
-  readerScrollTo(y);
+  if (remaining > 0) {
+    window.scrollBy({ top: dir * remaining, behavior: 'instant' });
+  }
 }
 
 /** Focus level 2: mark the direct child of .doc-content nearest the reading
@@ -757,9 +770,9 @@ export function App() {
         const nextIdx = event.key === ']'
           ? Math.min(headingSections.length - 1, idx + 1)
           : Math.max(0, idx - 1);
-        readerScrollToElement(document.getElementById(headingSections[nextIdx].id));
-      } else if (event.key === 'g') smoothScrollTo(0);
-      else if (event.key === 'G') smoothScrollTo(document.documentElement.scrollHeight);
+        readerJumpToElement(document.getElementById(headingSections[nextIdx].id));
+      } else if (event.key === 'g') readerJumpTo(0);
+      else if (event.key === 'G') readerJumpTo(document.documentElement.scrollHeight);
       else if (event.key === 'f') setFocusLevel((l) => (l + 1) % 3);
       else if (event.key === 'r') setRuler((r) => RULERS[(RULERS.indexOf(r) + 1) % RULERS.length]);
       // Shift+R: reset progress with the same two-step confirm as the ↺ button.
@@ -783,7 +796,7 @@ export function App() {
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'j' || event.key === 'k') stopSlide();
+      if (event.key === 'j' || event.key === 'k') stopSlide(true);
     };
     addEventListener('keydown', onKey);
     addEventListener('keyup', onKeyUp);
@@ -998,7 +1011,7 @@ export function App() {
               <div key={s.id} class="progress-segment" style={{ flexGrow: Math.max(1, s.wordCount) }}>
                 <div
                   class={`progress-fill ${p?.read ? 'read' : ''} ${frontier ? 'frontier' : ''}`}
-                  style={{ width: `${fill}%` }}
+                  style={{ transform: `scaleX(${fill / 100})` }}
                 />
               </div>
             );
