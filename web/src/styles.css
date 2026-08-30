@@ -34,6 +34,8 @@
   --body-letter-spacing: normal;
   --body-word-spacing: normal;
 
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
   --sidebar-width: 17rem;
   --toc-width: 22rem;
 }
@@ -128,6 +130,7 @@ body,
 
 .reading-pane {
   flex: 1;
+  min-width: 0;
   position: relative;
   margin-left: var(--sidebar-width);
   margin-right: var(--toc-width);
@@ -803,6 +806,9 @@ body,
 }
 
 .doc-reset {
+  display: inline-grid;
+  align-items: baseline;
+  justify-items: end;
   font: inherit;
   background: none;
   border: none;
@@ -812,9 +818,53 @@ body,
   transition: color 150ms ease;
 }
 
+.doc-reset-label {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  transform-origin: right center;
+  transition:
+    opacity 150ms var(--ease-out),
+    transform 150ms var(--ease-out);
+}
+
+.doc-reset-icon {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.doc-reset-confirm {
+  opacity: 0;
+  transform: scale(0.97);
+  pointer-events: none;
+}
+
+.doc-reset.confirm .doc-reset-icon {
+  opacity: 0;
+  transform: scale(0.97);
+}
+
+.doc-reset.confirm .doc-reset-confirm {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .doc-reset:hover,
 .doc-reset.confirm {
   color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-reset-label {
+    transform: none;
+    transition: opacity 150ms var(--ease-out);
+  }
+
+  .doc-reset-icon,
+  .doc-reset-confirm,
+  .doc-reset.confirm .doc-reset-icon,
+  .doc-reset.confirm .doc-reset-confirm {
+    transform: none;
+  }
 }
 
 .empty-state {

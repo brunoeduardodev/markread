@@ -1034,10 +1034,12 @@ export function App() {
                 </span>
                 <button
                   class={`doc-reset ${confirmReset ? 'confirm' : ''}`}
-                  title="Reset reading progress"
+                  title={confirmReset ? 'Confirm reset reading progress' : 'Reset reading progress'}
+                  aria-label={confirmReset ? 'Confirm reset reading progress' : 'Reset reading progress'}
                   onClick={() => (confirmReset ? resetProgress() : setConfirmReset(true))}
                 >
-                  {confirmReset ? 'reset progress?' : '↺'}
+                  <span class="doc-reset-label doc-reset-icon" aria-hidden="true">↺</span>
+                  <span class="doc-reset-label doc-reset-confirm" aria-hidden="true">reset progress?</span>
                 </button>
               </span>
               </div>
