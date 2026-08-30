@@ -676,8 +676,14 @@ export function App() {
   useEffect(() => {
     let ws: WebSocket;
     let closed = false;
+    let reloadAfterReconnect = false;
     const connect = () => {
       ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onopen = () => {
+        // The CLI restarted the server after a build or upgrade. Waiting for
+        // this fresh connection means the document reload gets the new bundle.
+        if (reloadAfterReconnect) location.reload();
+      };
       ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'change' && msg.path === currentHashPath()) {
@@ -705,6 +711,8 @@ export function App() {
               setActive(nextPath);
             })
             .catch(() => {});
+        } else if (msg.type === 'restart') {
+          reloadAfterReconnect = true;
         }
       };
       ws.onclose = () => {

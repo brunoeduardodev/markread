@@ -11,11 +11,12 @@ import { clearServerInstance, getServerInstance, saveServerInstance, type Server
 const PREFERRED_PORT = 4400;
 
 function parseArgs(argv: string[]) {
-  const args = { path: '.', port: undefined as number | undefined, open: true, help: false, version: false };
+  const args = { path: '.', port: undefined as number | undefined, open: true, help: false, version: false, reload: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--help' || arg === '-h') args.help = true;
     else if (arg === '--version' || arg === '-v') args.version = true;
+    else if (arg === 'reload') args.reload = true;
     else if (arg === '--no-open') args.open = false;
     else if (arg === '--port' || arg === '-p') args.port = Number(argv[++i]);
     else if (!arg.startsWith('-')) args.path = arg;
@@ -28,6 +29,7 @@ const HELP = `markread — a reading experience for your Markdown
 Usage:
   markread [path]        read Markdown in a folder or open a Markdown file
                          directly (default: .)
+  markread reload        restart the active server after an upgrade or build
 
 Options:
   -p, --port <n>         preferred port (default: ${PREFERRED_PORT})
@@ -56,6 +58,47 @@ async function handOffToServer(instance: ServerInstance, root: string, initialDo
   }
 }
 
+async function requestReload(instance: ServerInstance): Promise<string | null> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${instance.port}/api/reload`, {
+      method: 'POST',
+      headers: { 'x-markread-instance': instance.token },
+      signal: AbortSignal.timeout(1000),
+    });
+    const body = await response.json().catch(() => null);
+    return response.ok && body && typeof body.root === 'string' ? body.root : null;
+  } catch {
+    return null;
+  }
+}
+
+async function waitForPort(port: number): Promise<boolean> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (await getPort({ port }) === port) return true;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return false;
+}
+
+async function runServer(root: string, port: number): Promise<void> {
+  const token = randomUUID();
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    await server?.close();
+    await clearServerInstance(token);
+    process.exit(0);
+  };
+
+  server = await startServer(root, port, token, shutdown);
+  await saveServerInstance({ port, token });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -67,6 +110,27 @@ async function main() {
     const { createRequire } = await import('node:module');
     const pkg = createRequire(import.meta.url)('../package.json');
     console.log(pkg.version);
+    return;
+  }
+
+  if (args.reload) {
+    const existing = await getServerInstance();
+    if (!existing) {
+      console.error('markread: no active server to reload');
+      process.exit(1);
+    }
+    const root = await requestReload(existing);
+    if (!root) {
+      console.error('markread: unable to reload the active server');
+      process.exit(1);
+    }
+    if (!await waitForPort(existing.port)) {
+      console.error('markread: server did not stop in time');
+      process.exit(1);
+    }
+    await clearServerInstance(existing.token);
+    await runServer(root, existing.port);
+    console.log(`markread: reloaded ${root}`);
     return;
   }
 
@@ -105,9 +169,7 @@ async function main() {
   if (existing) await clearServerInstance(existing.token);
 
   const port = await getPort({ port: args.port ?? PREFERRED_PORT });
-  const token = randomUUID();
-  const server = await startServer(root, port, token);
-  await saveServerInstance({ port, token });
+  await runServer(root, port);
   const url = readerUrl(port, initialDoc);
 
   console.log();
@@ -117,13 +179,6 @@ async function main() {
 
   if (args.open) await open(url);
 
-  const shutdown = async () => {
-    await server.close();
-    await clearServerInstance(token);
-    process.exit(0);
-  };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
 }
 
 main().catch((err) => {

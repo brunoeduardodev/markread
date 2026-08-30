@@ -56,13 +56,21 @@ export interface MarkreadServer {
   close: () => Promise<void>;
 }
 
-export async function startServer(initialRoot: string, port: number, controlToken: string): Promise<MarkreadServer> {
+export async function startServer(
+  initialRoot: string,
+  port: number,
+  controlToken: string,
+  onReload: (root: string) => void | Promise<void>,
+): Promise<MarkreadServer> {
   await initRenderer();
   const appState = await loadState();
   let root = initialRoot;
 
   const app = new Hono();
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'web');
+  // Assigned once the WebSocket server is listening. Keeping this callable
+  // available to control routes lets a reload notify tabs before shutdown.
+  let broadcast: (msg: object) => void = () => {};
 
   // Favorites intentionally expose only roots already saved in the local
   // state file. The browser can reopen a saved workspace, but cannot turn
@@ -115,6 +123,19 @@ export async function startServer(initialRoot: string, port: number, controlToke
     }
 
     await switchRoot(nextRoot, initialDoc);
+    return c.json({ root });
+  });
+
+  // A new CLI process owns the replacement server. This server only persists
+  // state, warns connected tabs, and then shuts itself down after the response
+  // has reached that process.
+  app.post('/api/reload', async (c) => {
+    if (c.req.header('x-markread-instance') !== controlToken) {
+      return c.json({ error: 'forbidden' }, 403);
+    }
+    await flushState();
+    broadcast({ type: 'restart' });
+    setTimeout(() => void onReload(root), 100);
     return c.json({ root });
   });
 
@@ -244,7 +265,7 @@ export async function startServer(initialRoot: string, port: number, controlToke
 
   // Live reload: watch markdown files, push change events over WebSocket.
   const wss = new WebSocketServer({ server, path: '/ws' });
-  const broadcast = (msg: object) => {
+  broadcast = (msg: object) => {
     const data = JSON.stringify(msg);
     for (const client of wss.clients) {
       if (client.readyState === WebSocket.OPEN) client.send(data);
