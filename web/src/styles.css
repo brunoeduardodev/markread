@@ -41,7 +41,7 @@
 /* Vesper — near-black monochrome with the signature peach.
    Minimal warmth, maximal calm. */
 :root[data-theme='vesper'] {
-  --paper: #101010;
+  --paper: #000;
   --paper-raised: #161616;
   --ink: #ededed;
   --ink-soft: #9b9b9b;
