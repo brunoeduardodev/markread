@@ -19,6 +19,7 @@ interface MermaidPalette {
   textSoft: string;
   textFaint: string;
   rule: string;
+  structure: string;
 }
 
 const MERMAID_PALETTES: Record<EnhanceTheme, MermaidPalette> = {
@@ -30,6 +31,7 @@ const MERMAID_PALETTES: Record<EnhanceTheme, MermaidPalette> = {
     textSoft: '#6b6459',
     textFaint: '#a89f90',
     rule: '#e5ddcd',
+    structure: '#a89f90',
   },
   vesper: {
     background: '#000000',
@@ -39,6 +41,7 @@ const MERMAID_PALETTES: Record<EnhanceTheme, MermaidPalette> = {
     textSoft: '#9b9b9b',
     textFaint: '#5e5e5e',
     rule: '#232323',
+    structure: '#ff9e64',
   },
   'tokyo-night': {
     background: '#1a1b26',
@@ -48,6 +51,7 @@ const MERMAID_PALETTES: Record<EnhanceTheme, MermaidPalette> = {
     textSoft: '#8189b5',
     textFaint: '#565f89',
     rule: '#292e42',
+    structure: '#565f89',
   },
 };
 
@@ -149,34 +153,34 @@ function renderMermaidSvg(source: string, theme: EnhanceTheme): Promise<string> 
         mainBkg: palette.surface,
         primaryColor: palette.surface,
         primaryTextColor: palette.text,
-        primaryBorderColor: palette.textFaint,
+        primaryBorderColor: palette.structure,
         secondaryColor: palette.surfaceAlt,
         secondaryTextColor: palette.text,
-        secondaryBorderColor: palette.textFaint,
+        secondaryBorderColor: palette.structure,
         tertiaryColor: palette.background,
         tertiaryTextColor: palette.textSoft,
         tertiaryBorderColor: palette.rule,
         textColor: palette.text,
-        lineColor: palette.textSoft,
+        lineColor: palette.structure,
         titleColor: palette.text,
         edgeLabelBackground: palette.background,
         clusterBkg: palette.background,
         clusterBorder: palette.rule,
         noteBkgColor: palette.surface,
         noteTextColor: palette.text,
-        noteBorderColor: palette.textFaint,
+        noteBorderColor: palette.structure,
         actorBkg: palette.surface,
-        actorBorder: palette.textFaint,
+        actorBorder: palette.structure,
         actorTextColor: palette.text,
         actorLineColor: palette.textSoft,
-        signalColor: palette.textSoft,
+        signalColor: palette.structure,
         signalTextColor: palette.text,
         labelBoxBkgColor: palette.surface,
-        labelBoxBorderColor: palette.textFaint,
+        labelBoxBorderColor: palette.structure,
         labelTextColor: palette.text,
         loopTextColor: palette.text,
         activationBkgColor: palette.surfaceAlt,
-        activationBorderColor: palette.textFaint,
+        activationBorderColor: palette.structure,
       },
     });
 
