@@ -112,7 +112,10 @@ the same HTTP server. Client auto-reconnects every 1s.
   (`--shiki-vesper`, `--shiki-tokyo-night`; light is the default color).
   Preloaded language list in `LANGS`; unknown langs fall back to `text`.
 - ` ```mermaid ` fences bypass Shiki → `<pre class="mermaid-src"
-  data-diagram="<escaped source>">` for client-side lazy rendering.
+  data-diagram="<escaped source>">` for client-side lazy rendering. The client
+  wraps each rendered SVG in a theme-matched inline figure with a maximize
+  control; the full-viewport viewer closes by button, backdrop, or `Esc` and
+  restores focus to the originating control.
 - Exact `<details>` / `<summary>` blocks render as safe native disclosures,
   styled as Anki-like cards with a centered prompt face and separated answer
   side; their body is parsed as Markdown and arbitrary raw HTML remains disabled.

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'preact/hooks';
 import { ProgressTracker, type SectionMeta, type SectionProgress } from './progress.js';
-import { enhanceDoc } from './enhance.js';
+import { enhanceDoc, renderMermaidInto } from './enhance.js';
 
 interface DocEntry {
   path: string;
@@ -275,6 +275,7 @@ export function App() {
   const [favorites, setFavorites] = useState<FavoriteWorkspace[]>([]);
   const [currentRoot, setCurrentRoot] = useState('');
   const [favoriteError, setFavoriteError] = useState<string | null>(null);
+  const [expandedDiagram, setExpandedDiagram] = useState<string | null>(null);
 
   const tracker = useRef(new ProgressTracker());
   // Dev affordance: inspectable from the browser console.
@@ -285,6 +286,9 @@ export function App() {
   const wpm = useRef(238);
   const docRef = useRef<Doc | null>(null);
   const contentRef = useRef<HTMLElement>(null);
+  const expandedDiagramRef = useRef<HTMLDivElement>(null);
+  const diagramCloseRef = useRef<HTMLButtonElement>(null);
+  const diagramTriggerRef = useRef<HTMLButtonElement | null>(null);
   // Resolves once /api/state has been loaded — loadDoc must wait for it,
   // otherwise resume races the state fetch and silently restores to 0.
   const stateReady = useRef<Promise<void> | null>(null);
@@ -503,6 +507,26 @@ export function App() {
   useEffect(() => {
     if (doc && contentRef.current) enhanceDoc(contentRef.current, theme);
   }, [doc, theme]);
+
+  // The expanded viewer renders from the same immutable source as the inline
+  // figure, so changing themes recolors both views from scratch.
+  useEffect(() => {
+    if (expandedDiagram && expandedDiagramRef.current) {
+      renderMermaidInto(expandedDiagramRef.current, expandedDiagram, theme);
+    }
+  }, [expandedDiagram, theme]);
+
+  useEffect(() => {
+    if (!expandedDiagram) return;
+    document.body.classList.add('diagram-open');
+    requestAnimationFrame(() => diagramCloseRef.current?.focus());
+    return () => {
+      document.body.classList.remove('diagram-open');
+      diagramTriggerRef.current?.focus();
+    };
+  }, [expandedDiagram]);
+
+  useEffect(() => setExpandedDiagram(null), [active]);
 
   // Reading ruler choice persists; focus level does not.
   useEffect(() => {
@@ -732,6 +756,18 @@ export function App() {
   // In-document anchor links (footnotes, etc.) scroll instead of breaking
   // the #/file hash routing.
   const onArticleClick = useCallback((event: MouseEvent) => {
+    const expand = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-expand-mermaid]');
+    if (expand) {
+      const source = expand.closest('.mermaid-diagram')
+        ?.querySelector<HTMLElement>('.mermaid-src')
+        ?.dataset.diagram;
+      if (source) {
+        diagramTriggerRef.current = expand;
+        setExpandedDiagram(source);
+      }
+      return;
+    }
+
     const anchor = (event.target as HTMLElement).closest('a');
     const href = anchor?.getAttribute('href');
     if (href?.startsWith('#') && !href.startsWith('#/')) {
@@ -747,6 +783,15 @@ export function App() {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+
+      if (expandedDiagram) {
+        if (event.key === 'Escape') setExpandedDiagram(null);
+        else if (event.key === 'Tab') {
+          event.preventDefault();
+          diagramCloseRef.current?.focus();
+        }
+        return;
+      }
 
       const path = currentHashPath();
       const index = docs.findIndex((d) => d.path === path);
@@ -805,7 +850,7 @@ export function App() {
       removeEventListener('keyup', onKeyUp);
       stopSlide();
     };
-  }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen, confirmReset, resetProgress]);
+  }, [docs, helpOpen, filterQuery, focusLevel, settingsOpen, expandedDiagram, confirmReset, resetProgress]);
 
   const t = tracker.current;
   const sections = doc ? progressSections(doc) : [];
@@ -1124,6 +1169,35 @@ export function App() {
       )}
 
       {folderClear && <div class="folder-clear-banner">{folderClear}</div>}
+
+      {expandedDiagram && (
+        <div
+          class="diagram-viewer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Expanded Mermaid diagram"
+          onClick={() => setExpandedDiagram(null)}
+        >
+          <div class="diagram-viewer-shell" onClick={(event) => event.stopPropagation()}>
+            <div class="diagram-viewer-header">
+              <span>diagram</span>
+              <button
+                ref={diagramCloseRef}
+                type="button"
+                class="diagram-viewer-close"
+                title="Close diagram (Esc)"
+                aria-label="Close expanded diagram"
+                onClick={() => setExpandedDiagram(null)}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M6 2v4H2M10 2v4h4M14 10h-4v4M2 10h4v4" />
+                </svg>
+              </button>
+            </div>
+            <div ref={expandedDiagramRef} class="diagram-expanded-canvas" role="img" aria-label="Mermaid diagram" />
+          </div>
+        </div>
+      )}
 
       {ruler !== 'off' && (
         <div class="reading-ruler" aria-hidden="true">

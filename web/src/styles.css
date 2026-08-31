@@ -1589,18 +1589,188 @@ body,
 }
 
 /* --- Mermaid diagrams ----------------------------------------------------
-   Rendered client-side into the <pre class="mermaid-src"> placeholder; until
-   JS runs (or if a diagram fails to parse) it shows as plain source text. */
+   A quiet figure plate in normal reading flow. The original source remains
+   in data-diagram so inline and expanded views can re-render per theme. */
+
+.doc-content .mermaid-diagram {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
 
 .doc-content pre.mermaid-src {
   display: flex;
+  align-items: center;
   justify-content: center;
-  background-color: var(--paper-raised);
+  min-height: 12rem;
+  margin: 0;
+  padding: 2.75rem 1.5rem 1.75rem;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.doc-content pre.mermaid-src[aria-busy='true'] {
+  color: transparent;
+}
+
+.doc-content pre.mermaid-src[aria-busy='true']::after {
+  content: 'rendering diagram';
+  color: var(--ink-faint);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
 }
 
 .doc-content pre.mermaid-src svg {
-  max-width: 100%;
+  display: block;
+  width: auto;
+  max-width: 100% !important;
   height: auto;
+  max-height: min(68vh, 48rem);
+}
+
+.doc-content pre.mermaid-src.mermaid-error {
+  display: block;
+  min-height: 0;
+  white-space: pre;
+  color: var(--ink-soft);
+}
+
+.mermaid-expand,
+.diagram-viewer-close {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--paper-raised) 92%, transparent);
+  cursor: pointer;
+}
+
+.mermaid-expand {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  z-index: 1;
+}
+
+.mermaid-expand svg,
+.diagram-viewer-close svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  stroke-linecap: square;
+}
+
+.mermaid-expand:hover,
+.diagram-viewer-close:hover {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+.mermaid-expand:focus-visible,
+.diagram-viewer-close:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+body.diagram-open {
+  overflow: hidden;
+}
+
+.diagram-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.diagram-viewer-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-raised);
+}
+
+.diagram-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 3.25rem;
+  padding: 0.6rem 0.75rem 0.6rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-faint);
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.diagram-expanded-canvas {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: clamp(1rem, 4vw, 4rem);
+  overflow: auto;
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+}
+
+.diagram-expanded-canvas[aria-busy='true']::after {
+  content: 'rendering diagram';
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.diagram-expanded-canvas svg {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+}
+
+.diagram-expanded-canvas.mermaid-error {
+  place-items: start;
+  white-space: pre;
+}
+
+@media (max-width: 760px) {
+  .doc-content pre.mermaid-src {
+    min-height: 9rem;
+    padding: 2.75rem 0.9rem 1.25rem;
+  }
+
+  .diagram-viewer {
+    padding: 0;
+  }
+
+  .diagram-viewer-shell {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .diagram-expanded-canvas {
+    padding: 1rem;
+  }
 }
 
 /* --- Math (KaTeX) --------------------------------------------------------- */

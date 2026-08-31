@@ -23,7 +23,7 @@ mdr [path]           # default: cwd
 
 - **Distribution**: npm (`npx`/global). No compiled binaries in v1 (57 MB/platform verified cost). No postinstall downloads (supply-chain).
 - **Frontend**: Preact + Vite build, pre-built and shipped in the package (no build step at run time). Static, self-contained assets.
-- **Mermaid & KaTeX**: client-side, lazy-loaded only when the rendered doc contains them.
+- **Mermaid & KaTeX**: client-side, lazy-loaded only when the rendered doc contains them. Mermaid diagrams render inline with the active markread theme and offer a keyboard-accessible full-viewport view.
 - **Graceful shutdown**: Ctrl-C stops server; browser shows "session ended" state.
 
 ## Design principles (evidence-informed, binding)
