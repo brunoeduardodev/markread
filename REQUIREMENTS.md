@@ -77,6 +77,9 @@ mdr [path]           # default: cwd
 - **Section chunking** by `h2`/`h3`
 - **Scroll-driven section ticks**: hollow circle → filled tick in TOC when the reading line passes the section's end
 - **Segmented progress bar**: one segment per section (goal-gradient: many small finish lines)
+- **Gratifying motion feedback**: the bar follows each scroll target over 160 ms, the ring over 240 ms, and the word count rolls into place; every 100 words, 5%, and completed section earns a deterministic accent/pulse without inventing progress
+- **Section reward cascade**: completed segment → TOC tick/next-up → ring → time-earned label, with the full sequence beginning within 180 ms
+- **Reading momentum warmth**: active scrolling brightens the frontier comet, odometer, and ring halo, then fades cleanly after movement stops
 - **Time-left**: per section + per document; default 238 wpm, calibrated per user from observed reading speed
 - **Furthest-read breadcrumb** in margin; **instant resume** to exact position on reopen
 - **Doc-complete moment**: brief (≤400 ms) full-width acknowledgment; sidebar ✓; offer next unread file: "`n` → next: architecture.md (~6 min)"
@@ -107,7 +110,6 @@ mdr [path]           # default: cwd
 - Auto-scroll with adjustable pace
 - Full-text search across folder
 - "Calm mode": de-emphasize excessive inline bold (AI slop-formatting relief)
-- Momentum indicator (subtle warm glow after N continuous minutes)
 
 ## P2 — exploratory
 - Recall checkpoints (1 AI-generated question per doc — the only mechanic that could aid comprehension, not just engagement)

@@ -35,6 +35,7 @@
   --body-word-spacing: normal;
 
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
   --sidebar-width: 17rem;
   --toc-width: 22rem;
@@ -391,17 +392,30 @@ body,
   flex-basis: 0;
   background: color-mix(in srgb, var(--rule) 70%, transparent);
   overflow: hidden;
+  transform-origin: center;
 }
 
 .progress-fill {
+  position: relative;
   width: 100%;
   height: 100%;
   transform-origin: left center;
   background: color-mix(in srgb, var(--accent) 55%, transparent);
+  transition: transform 160ms var(--ease-out), background-color 180ms ease;
 }
 
 .progress-fill.read {
   background: var(--accent);
+}
+
+.progress-segment.just-read {
+  animation: segment-confirm 240ms var(--ease-out);
+}
+
+@keyframes segment-confirm {
+  0% { transform: scaleY(1); }
+  45% { transform: scaleY(2.4); }
+  100% { transform: scaleY(1); }
 }
 
 /* --- TOC quest log ------------------------------------------------------------ */
@@ -482,7 +496,10 @@ body,
 .toc-item.read .toc-tick {
   background: var(--accent);
   border-color: var(--accent);
-  animation: tick-pop 350ms cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.toc-item.just-read .toc-tick {
+  animation: tick-pop 300ms cubic-bezier(0.3, 1.6, 0.5, 1) 60ms both;
 }
 
 @keyframes tick-pop {
@@ -492,8 +509,8 @@ body,
 }
 
 /* --- Completion moment ----------------------------------------------------------
-   The one place a real celebration is allowed: a brief bar shimmer and a
-   quiet pill offering the next unread doc. Non-blocking, never a modal. */
+   The strongest beat in the hierarchy: a brief bar shimmer and a quiet pill
+   offering the next unread doc. Non-blocking, never a modal. */
 
 .progress-bar.complete .progress-fill.read {
   animation: bar-shimmer 700ms ease;
@@ -555,15 +572,69 @@ body,
   }
 }
 
-/* --- Dopamine layer ---------------------------------------------------------
-   Deterministic, truthful, budgeted. Focus mode silences all of it. */
+/* --- Gratification layer ----------------------------------------------------
+   Deterministic feedback with a clear intensity hierarchy. Focus mode still
+   silences all of it, and reduced-motion keeps the acknowledgement without
+   spatial movement. */
 
-/* Word odometer — ambient digits, no animation */
+/* Word odometer — each new value physically replaces the previous one. */
 .doc-odometer {
   color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+  transition: color 220ms ease;
 }
 
-/* Delta pulse / halfway whisper — one flash channel, budgeted upstream */
+.odometer-window {
+  position: relative;
+  display: inline-block;
+  width: 6.6ch;
+  height: 1.1em;
+  overflow: clip;
+  text-align: right;
+  vertical-align: -0.18em;
+}
+
+.odometer-value {
+  position: absolute;
+  inset: 0 0 auto;
+  line-height: 1.1;
+}
+
+.doc-odometer.rolling .odometer-value.old {
+  animation: odometer-old 140ms var(--ease-in-out) both;
+}
+
+.doc-odometer.rolling .odometer-value.current {
+  animation: odometer-current 140ms var(--ease-out) both;
+}
+
+.doc-odometer.reward {
+  color: var(--accent);
+}
+
+@keyframes odometer-old {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(-42%); }
+}
+
+@keyframes odometer-current {
+  from { opacity: 0; transform: translateY(42%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Delta/milestone whisper — the final beat of a section cascade. */
 .meta-flash {
   color: var(--accent);
   animation: meta-flash 1.6s ease forwards;
@@ -579,13 +650,41 @@ body,
 .final-stretch {
   color: var(--accent);
   letter-spacing: 0.06em;
+  animation: final-stretch-in 220ms var(--ease-out) both;
 }
 
-/* Frontier comet — the filling segment gets a live leading edge */
+@keyframes final-stretch-in {
+  from { opacity: 0; transform: translateY(0.3em); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Frontier comet — a persistent edge that brightens while reading moves. */
 .progress-fill.frontier {
-  box-shadow:
-    1px 0 0 var(--accent),
-    5px 0 9px color-mix(in srgb, var(--accent) 45%, transparent);
+  overflow: visible;
+}
+
+.progress-fill.frontier::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -1px;
+  width: 12px;
+  height: 10px;
+  border-radius: 999px;
+  background: radial-gradient(circle at right, var(--accent), color-mix(in srgb, var(--accent) 52%, transparent) 32%, transparent 72%);
+  opacity: 0.58;
+  transform: scaleX(0.72);
+  transform-origin: right center;
+  transition: opacity 260ms ease, transform 260ms var(--ease-out);
+}
+
+.layout.reading-active .progress-fill.frontier::after {
+  opacity: 1;
+  transform: scaleX(1.15);
+}
+
+.layout.reading-active .doc-odometer {
+  color: color-mix(in srgb, var(--accent) 72%, var(--ink-faint));
 }
 
 /* Next-up shimmer — the reward points forward */
@@ -662,10 +761,38 @@ body,
 /* Fill-the-circle: the doc's stats hub, pinned at the bottom of the rail */
 .progress-ring {
   position: relative;
+  isolation: isolate;
   flex: none;
   width: 280px;
   height: 280px;
   margin: 1.5rem auto 0;
+}
+
+.progress-ring::before {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 18%, transparent), transparent 68%);
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 420ms ease, transform 420ms var(--ease-out);
+}
+
+.layout.reading-active .progress-ring::before {
+  opacity: 0.72;
+  transform: scale(1);
+}
+
+.layout.final-stretch-active .progress-ring::before {
+  opacity: 0.94;
+  animation: final-ring-breathe 2.2s var(--ease-in-out) infinite;
+}
+
+@keyframes final-ring-breathe {
+  0%, 100% { transform: scale(0.96); }
+  50% { transform: scale(1.08); }
 }
 
 .progress-ring svg {
@@ -686,6 +813,7 @@ body,
   stroke-linecap: round;
   transform: rotate(-90deg);
   transform-origin: 50% 50%;
+  transition: stroke-dashoffset 240ms var(--ease-out), stroke 200ms ease;
 }
 
 .ring-label {
@@ -717,20 +845,49 @@ body,
   color: var(--accent);
 }
 
-.progress-ring.pulse {
-  animation: ring-pulse 650ms cubic-bezier(0.3, 1.5, 0.5, 1);
-}
-
-@keyframes ring-pulse {
-  0%, 100% { transform: scale(1); }
-  40% { transform: scale(1.06); }
-}
-
-/* The dopamine layer is chrome — focus mode silences all of it */
+/* The gratification layer is chrome — focus mode silences all of it. */
 .layout.focus .meta-flash,
 .layout.focus .folder-clear-banner,
 .layout.focus .progress-ring {
   display: none;
+}
+
+@keyframes feedback-fade {
+  0% { opacity: 0; }
+  18%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill,
+  .ring-fill {
+    transition-duration: 1ms;
+  }
+
+  .progress-segment.just-read,
+  .toc-item.just-read .toc-tick,
+  .toc-item.next-up .toc-tick,
+  .doc-odometer.rolling .odometer-value.old,
+  .doc-odometer.rolling .odometer-value.current,
+  .final-stretch,
+  .layout.final-stretch-active .progress-ring::before {
+    animation: none;
+    transform: none;
+  }
+
+  .doc-odometer.rolling .odometer-value.old {
+    display: none;
+  }
+
+  .meta-flash {
+    animation: feedback-fade 1.6s ease forwards;
+  }
+
+  .progress-fill.frontier::after,
+  .progress-ring::before {
+    transform: none;
+    transition: opacity 150ms ease;
+  }
 }
 
 /* --- Resume marker ("you were here") ------------------------------------------- */

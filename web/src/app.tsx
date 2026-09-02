@@ -245,6 +245,37 @@ function nextUnread(
   return undefined;
 }
 
+const FEEDBACK_EASE = 'cubic-bezier(0.23, 1, 0.32, 1)';
+
+interface PendingSectionCue {
+  nextId: string | null;
+  wordCount: number;
+}
+
+function RollingOdometer({ value, reward }: { value: number; reward: boolean }) {
+  const previous = useRef(value);
+  const [departing, setDeparting] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (previous.current === value) return;
+    setDeparting(previous.current);
+    previous.current = value;
+    const timer = setTimeout(() => setDeparting(null), 170);
+    return () => clearTimeout(timer);
+  }, [value]);
+
+  return (
+    <span class={`doc-odometer ${departing !== null ? 'rolling' : ''} ${reward ? 'reward' : ''}`}>
+      <span class="odometer-window" aria-hidden="true">
+        {departing !== null && <span key={`old-${departing}`} class="odometer-value old">{departing.toLocaleString()}</span>}
+        <span key={value} class="odometer-value current">{value.toLocaleString()}</span>
+      </span>
+      <span aria-hidden="true"> words</span>
+      <span class="sr-only">{value.toLocaleString()} words read</span>
+    </span>
+  );
+}
+
 const PERSIST_INTERVAL_MS = 3000;
 
 export function App() {
@@ -262,7 +293,9 @@ export function App() {
   const [folderClear, setFolderClear] = useState<string | null>(null);
   // State, not an imperative class — re-renders would clobber the latter.
   const [nextUpId, setNextUpId] = useState<string | null>(null);
-  const [ringPulse, setRingPulse] = useState(false);
+  const [celebratingSectionId, setCelebratingSectionId] = useState<string | null>(null);
+  const [odometerReward, setOdometerReward] = useState(false);
+  const [readingActive, setReadingActive] = useState(false);
   // Bumped whenever dwell progress changes; cheap way to re-render TOC/bar.
   const [, setProgressVersion] = useState(0);
   // Focus mode: 0 off, 1 focus (chrome hidden), 2 focus+dim. Ephemeral.
@@ -286,6 +319,7 @@ export function App() {
   const wpm = useRef(238);
   const docRef = useRef<Doc | null>(null);
   const contentRef = useRef<HTMLElement>(null);
+  const ringRef = useRef<HTMLDivElement>(null);
   const expandedDiagramRef = useRef<HTMLDivElement>(null);
   const diagramCloseRef = useRef<HTMLButtonElement>(null);
   const diagramTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -294,9 +328,8 @@ export function App() {
   const stateReady = useRef<Promise<void> | null>(null);
   // Observed reading-speed samples awaiting the next persist.
   const wpmQueue = useRef<number[]>([]);
-  // Dopamine layer bookkeeping
+  // Gratification-layer bookkeeping.
   const sessionCompletions = useRef(0);
-  const lastCueAt = useRef(0);
   const prevDoneCount = useRef(-1);
   const folderClearShown = useRef(false);
   // Milestone celebrations: long docs (>20 min) every 10%, short docs at
@@ -304,17 +337,54 @@ export function App() {
   const milestoneMarks = useRef<number[]>([]);
   const milestonesShown = useRef<Set<number>>(new Set());
   const metaFlashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  // Sections auto-passed while a doc is being (re)initialized aren't earned —
-  // no cues for them, and no budget drain either.
+  const feedbackGeneration = useRef(0);
+  const feedbackTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const momentumTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const odometerRewardTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const ringPulseAnimation = useRef<Animation | null>(null);
+  const pendingSectionCue = useRef<PendingSectionCue | null>(null);
+  const lastHundredWords = useRef(0);
+  const lastFivePercent = useRef(0);
+  // Sections auto-passed while a doc is being (re)initialized aren't earned.
   const suppressCues = useRef(false);
 
-  /** Celebration budget for sub-completion cues: at most one per window.
-      Completion-level moments (doc/folder) are exempt — they're the stars. */
-  const tryCue = useCallback(() => {
-    const now = performance.now();
-    if (now - lastCueAt.current < 8000) return false;
-    lastCueAt.current = now;
-    return true;
+  const cancelFeedback = useCallback(() => {
+    feedbackGeneration.current += 1;
+    for (const timer of feedbackTimers.current) clearTimeout(timer);
+    feedbackTimers.current = [];
+    clearTimeout(momentumTimer.current);
+    clearTimeout(odometerRewardTimer.current);
+    ringPulseAnimation.current?.cancel();
+    ringPulseAnimation.current = null;
+    pendingSectionCue.current = null;
+    setCelebratingSectionId(null);
+    setNextUpId(null);
+    setOdometerReward(false);
+    setReadingActive(false);
+  }, []);
+
+  const scheduleFeedback = useCallback((callback: () => void, delay: number) => {
+    const generation = feedbackGeneration.current;
+    const timer = setTimeout(() => {
+      feedbackTimers.current = feedbackTimers.current.filter((candidate) => candidate !== timer);
+      if (generation === feedbackGeneration.current) callback();
+    }, delay);
+    feedbackTimers.current.push(timer);
+  }, []);
+
+  const pulseRing = useCallback((strength: 'micro' | 'section' | 'milestone') => {
+    const element = ringRef.current;
+    if (!element) return;
+    ringPulseAnimation.current?.cancel();
+    const scale = strength === 'milestone' ? 1.065 : strength === 'section' ? 1.045 : 1.025;
+    const duration = strength === 'milestone' ? 420 : strength === 'section' ? 280 : 220;
+    const keyframes = reducedMotion()
+      ? [{ opacity: 1 }, { opacity: 0.82 }, { opacity: 1 }]
+      : [{ transform: 'scale(1)' }, { transform: `scale(${scale})` }, { transform: 'scale(1)' }];
+    ringPulseAnimation.current = element.animate(keyframes, {
+      duration,
+      easing: FEEDBACK_EASE,
+    });
   }, []);
 
   const flashMeta = useCallback((text: string) => {
@@ -431,6 +501,9 @@ export function App() {
 
   const loadDoc = useCallback(async (path: string, preserveScroll = false) => {
     if (!path) return;
+    cancelFeedback();
+    clearTimeout(metaFlashTimer.current);
+    setMetaFlash(null);
     const scrollBefore = window.scrollY;
     await stateReady.current;
     const res = await fetch(`/api/doc?path=${encodeURIComponent(path)}`);
@@ -457,6 +530,8 @@ export function App() {
       const pctAtLoad = (t.passedWords() / Math.max(1, data.wordCount)) * 100;
       milestoneMarks.current = data.minutes > 20 ? [10, 20, 30, 40, 50, 60, 70, 80, 90] : [25, 50, 75];
       milestonesShown.current = new Set(milestoneMarks.current.filter((m) => pctAtLoad >= m));
+      lastHundredWords.current = Math.floor(t.passedWords() / 100);
+      lastFivePercent.current = Math.floor(pctAtLoad / 5);
       setActiveSection(t.currentSectionId());
       setProgressVersion((v) => v + 1);
 
@@ -466,13 +541,16 @@ export function App() {
         setTimeout(() => setResumeTop(null), 4000);
       }
     });
-  }, []);
+  }, [cancelFeedback]);
 
   // Start over on the open document: forget server state, jump to the top,
   // and re-seed the tracker as if the doc had never been opened.
   const resetProgress = useCallback(async () => {
     const current = docRef.current;
     if (!current) return;
+    cancelFeedback();
+    clearTimeout(metaFlashTimer.current);
+    setMetaFlash(null);
     await fetch(`/api/state/file?path=${encodeURIComponent(current.path)}`, {
       method: 'DELETE',
     }).catch(() => {});
@@ -483,11 +561,13 @@ export function App() {
     suppressCues.current = false;
     const pctAtReset = (tracker.current.passedWords() / Math.max(1, current.wordCount)) * 100;
     milestonesShown.current = new Set(milestoneMarks.current.filter((m) => pctAtReset >= m));
+    lastHundredWords.current = Math.floor(tracker.current.passedWords() / 100);
+    lastFivePercent.current = Math.floor(pctAtReset / 5);
     setJustCompleted(false);
     setConfirmReset(false);
     setActiveSection(tracker.current.currentSectionId());
     setProgressVersion((v) => v + 1);
-  }, []);
+  }, [cancelFeedback]);
 
   // The confirm state reverts on its own if the second click never comes.
   useEffect(() => {
@@ -619,16 +699,23 @@ export function App() {
     };
   }, [persistProgress]);
 
-  // Progress → UI updates, completion detection, WPM samples, dopamine cues
+  // Progress → UI updates, completion detection, WPM samples, gratification cues.
+  // A section earns one short sequence: bar/tick, ring, then time delta.
   useEffect(() => {
     const t = tracker.current;
     t.onTick = () => {
       setProgressVersion((v) => v + 1);
-      // Milestone celebrations — every unshown mark behind the line is
-      // marked, but only the furthest one celebrates (budgeted).
       const d = docRef.current;
       if (!d) return;
-      const pct = (t.passedWords() / Math.max(1, d.wordCount)) * 100;
+      const passedWords = Math.min(d.wordCount, Math.round(t.passedWords()));
+      const pct = (passedWords / Math.max(1, d.wordCount)) * 100;
+      const hundred = Math.floor(passedWords / 100);
+      const fivePercent = Math.floor(pct / 5);
+      const crossedHundred = hundred > lastHundredWords.current;
+      const crossedFivePercent = fivePercent > lastFivePercent.current;
+      lastHundredWords.current = Math.max(lastHundredWords.current, hundred);
+      lastFivePercent.current = Math.max(lastFivePercent.current, fivePercent);
+
       let crossed: number | undefined;
       for (const mark of milestoneMarks.current) {
         if (pct >= mark && !milestonesShown.current.has(mark)) {
@@ -636,14 +723,33 @@ export function App() {
           crossed = mark;
         }
       }
-      // Milestones outrank section deltas: they always celebrate (they're
-      // self-limiting — at most 9 per doc) and claim the cue budget so a
-      // lesser cue can't fire right on their heels.
-      if (crossed !== undefined && !t.allRead() && !suppressCues.current) {
-        lastCueAt.current = performance.now();
+
+      if (suppressCues.current) return;
+      if (crossedHundred && !t.allRead()) {
+        setOdometerReward(true);
+        clearTimeout(odometerRewardTimer.current);
+        odometerRewardTimer.current = setTimeout(() => setOdometerReward(false), 420);
+      }
+
+      const pending = pendingSectionCue.current;
+      pendingSectionCue.current = null;
+      if (t.allRead()) return;
+
+      if (pending) {
+        if (pending.nextId) {
+          scheduleFeedback(() => setNextUpId(pending.nextId), 60);
+          scheduleFeedback(() => setNextUpId(null), 1500);
+        }
+        scheduleFeedback(() => pulseRing(crossed === undefined ? 'section' : 'milestone'), 120);
+        scheduleFeedback(() => {
+          const delta = `−${Math.max(1, Math.round(pending.wordCount / wpm.current))} min`;
+          flashMeta(crossed === undefined ? delta : `${crossed}% · ${delta}`);
+        }, 180);
+      } else if (crossed !== undefined) {
+        pulseRing('milestone');
         flashMeta(`${crossed}% ·`);
-        setRingPulse(true);
-        setTimeout(() => setRingPulse(false), 650);
+      } else if (crossedFivePercent) {
+        pulseRing('micro');
       }
     };
     t.onRead = (id) => {
@@ -652,35 +758,39 @@ export function App() {
       const secs = d ? progressSections(d) : [];
       const section = secs.find((s) => s.id === id);
 
-      // Sub-completion cues share one budget: at most one animated moment
-      // per window, or fast readers get a fireworks strip instead of calm.
-      // A read that completes the doc gets the pill instead — no competing flash.
-      if (!suppressCues.current && !t.allRead() && section && section.wordCount >= 50 && tryCue()) {
-        // Delta pulse: progress framed as time earned back.
-        flashMeta(`−${Math.max(1, Math.round(section.wordCount / wpm.current))} min`);
-        // Next-up shimmer: the reward points forward.
+      // Already-read sections restored on load are suppressed. Earned sections
+      // always get a deterministic cue; completion still owns the final beat.
+      if (!suppressCues.current && !t.allRead() && section) {
         const next = secs[secs.indexOf(section) + 1];
-        if (next) {
-          setNextUpId(next.id);
-          setTimeout(() => setNextUpId(null), 1500);
-        }
+        pendingSectionCue.current = { nextId: next?.id ?? null, wordCount: section.wordCount };
+        setCelebratingSectionId(id);
+        scheduleFeedback(() => setCelebratingSectionId(null), 520);
       }
 
       const path = d?.path;
       if (path && t.allRead() && !filesState.current[path]?.completed) {
+        cancelFeedback();
         sessionCompletions.current += 1;
         setJustCompleted(true);
         persistProgress(path); // make the ✓ durable immediately
       }
     };
     t.onSample = (sample) => wpmQueue.current.push(sample);
-    return () => t.stop();
-  }, [persistProgress, tryCue, flashMeta]);
+    return () => {
+      t.stop();
+      cancelFeedback();
+    };
+  }, [persistProgress, flashMeta, scheduleFeedback, pulseRing, cancelFeedback]);
 
   // Scroll-spy + section re-measure on resize
   useEffect(() => {
     let raf = 0;
     const onScroll = () => {
+      if (docRef.current) {
+        setReadingActive(true);
+        clearTimeout(momentumTimer.current);
+        momentumTimer.current = setTimeout(() => setReadingActive(false), 900);
+      }
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         setActiveSection(tracker.current.currentSectionId());
@@ -696,6 +806,8 @@ export function App() {
     return () => {
       removeEventListener('scroll', onScroll);
       removeEventListener('resize', onResize);
+      cancelAnimationFrame(raf);
+      clearTimeout(momentumTimer.current);
     };
   }, []);
 
@@ -946,7 +1058,7 @@ export function App() {
   };
 
   return (
-    <div class={`layout ${focusLevel >= 1 ? 'focus' : ''} ${focusLevel === 2 ? 'focus-dim' : ''}`}>
+    <div class={`layout ${focusLevel >= 1 ? 'focus' : ''} ${focusLevel === 2 ? 'focus-dim' : ''} ${readingActive ? 'reading-active' : ''} ${finalStretch ? 'final-stretch-active' : ''}`}>
       <aside class="sidebar">
         <header class="brand">
           <span><span class="brand-mark">mark</span>read</span>
@@ -1053,7 +1165,7 @@ export function App() {
             const fill = t.fillFraction(s.id) * 100;
             const frontier = !p?.read && fill > 0 && fill < 100;
             return (
-              <div key={s.id} class="progress-segment" style={{ flexGrow: Math.max(1, s.wordCount) }}>
+              <div key={s.id} class={`progress-segment ${s.id === celebratingSectionId ? 'just-read' : ''}`} style={{ flexGrow: Math.max(1, s.wordCount) }}>
                 <div
                   class={`progress-fill ${p?.read ? 'read' : ''} ${frontier ? 'frontier' : ''}`}
                   style={{ transform: `scaleX(${fill / 100})` }}
@@ -1073,7 +1185,7 @@ export function App() {
               <span class="doc-meta-right">
                 {metaFlash && <span class="meta-flash" key={metaFlash}>{metaFlash}</span>}
                 {finalStretch && <span class="final-stretch">final section</span>}
-                <span class="doc-odometer">{wordsPassed.toLocaleString()} words</span>
+                <RollingOdometer value={wordsPassed} reward={odometerReward} />
                 <span class="doc-minutes">
                   {minutesLeft <= 0 ? 'done' : `~${minutesLeft} min left`}
                 </span>
@@ -1133,7 +1245,7 @@ export function App() {
                 <a
                   key={s.id}
                   href={`#${s.id}`}
-                  class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''}`}
+                  class={`toc-item level-${s.level} ${s.id === activeSection ? 'active' : ''} ${p?.read ? 'read' : ''} ${s.id === nextUpId ? 'next-up' : ''} ${s.id === celebratingSectionId ? 'just-read' : ''}`}
                   onClick={(event) => {
                     event.preventDefault();
                     readerScrollToElement(document.getElementById(s.id));
@@ -1145,7 +1257,7 @@ export function App() {
               );
             })}
           </div>
-          <div class={`progress-ring ${ringPulse ? 'pulse' : ''} ${t.allRead() ? 'done' : ''}`} aria-hidden="true">
+          <div ref={ringRef} class={`progress-ring ${t.allRead() ? 'done' : ''}`} aria-hidden="true">
             <svg viewBox="0 0 120 120">
               <circle class="ring-track" cx="60" cy="60" r="54" />
               <circle

@@ -220,8 +220,9 @@ All state lives in one `App()` component. Notable mechanics:
   - `g`/`G` and `[`/`]` are instant keyboard jumps. Pointer TOC and in-document
     anchor clicks remain browser-native smooth scroll; wheel/touch interrupts
     them, and `prefers-reduced-motion` makes pointer jumps immediate.
-  - The segmented progress bar and ring track scroll directly without an
-    interpolated tail; the bar uses compositor-friendly `scaleX`.
+  - The segmented progress bar and ring ease toward each scroll-derived target
+    (160 ms and 240 ms respectively); the bar remains compositor-friendly via
+    `scaleX`. There is no autonomous/time-driven progress.
 - **Keyboard map** (single guarded handler; INPUT/TEXTAREA targets and
   meta/ctrl/alt combos are ignored): `j/k` slide · `n/p` next/prev file (n
   jumps to next *unread* once current doc is completed) · `[/]` sections ·
@@ -240,31 +241,33 @@ All state lives in one `App()` component. Notable mechanics:
   `tokyo-night` via `data-theme` on `<html>`; OS dark preference defaults to
   vesper.
 
-### The dopamine layer (all in app.tsx; grep "Dopamine")
+### The gratification layer (all in app.tsx; grep "gratification")
 
 Cue inventory — all deterministic and derived from real progress:
 
 | Cue | Trigger | Surface |
 |---|---|---|
-| Word odometer | every advance | sticky meta bar, plain digits |
-| Frontier comet | while a segment is partially filled | box-shadow leading edge on the bar |
-| Delta pulse `−N min` | section ≥50 words passed | `.meta-flash` (1.6s) |
-| Next-up shimmer | same moment as delta | next TOC tick pulses (state `nextUpId`, NOT an imperative class — Preact re-renders clobber those) |
-| Milestones `N% ·` | docs >20 min: every 10%; else 25/50/75 (100% = pill's job) | meta flash + ring pulse |
-| `final section` | scroll-spy enters last section | persistent meta label |
+| Word odometer | every advance; accent every crossed 100 words | sticky meta bar, digits roll over 140 ms |
+| Frontier comet + momentum warmth | while a segment is partially filled; intensifies during scrolling and fades after 900 ms idle | transform/opacity leading edge on the bar, odometer tint, ring halo |
+| 5% acknowledgement | each newly crossed 5% bucket outside a milestone | 220 ms micro ring pulse |
+| Section cascade | every earned non-final section | segment height pop → TOC tick + next-up at 60 ms → ring at 120 ms → `−N min` at 180 ms |
+| Milestones `N% ·` | docs >20 min: every 10%; else 25/50/75 (100% = pill's job) | stronger ring pulse + meta flash; combines with section delta on collision |
+| `final section` | scroll-spy enters last section | entering meta label + stronger breathing ring halo |
 | Completion pill | all sections read (first time) | `✓ document complete · read in ~N min · X wpm (only when elapsed >30s and 60–900wpm) · 2nd this session · n next: file (~N min)` |
-| Ring hub | always (doc with sections) | 280px SVG circle at rail bottom: big %, `~N min left`, `N words read`; ✓/done when complete; pulses on milestones |
+| Ring hub | always (doc with sections) | 280px SVG circle at rail bottom: big %, `~N min left`, `N words read`; ✓/done when complete; 240 ms fill follow + tiered pulses |
 | Sidebar read-states | persisted + live for open doc | `●` unread / `N%` / `✓`; plus `~N min` quick-win chips on untouched docs ≤5 min |
 | Folder rollup + flash | any completion | `N/M read · ~X min left`, accent flash on increment |
 | Cheapest-win link | ≥2 docs, any unfinished ≤15 min | `closest to done: X · ~N min` under rollup |
 | Folder-clear banner | last doc in folder completes (once per session) | the one big celebration |
 
 **Cue governance** (do not weaken these):
-- 8-second **celebration budget** (`tryCue`/`lastCueAt`) shared by
-  sub-completion cues; **milestones bypass and claim it** (they outrank deltas);
-  completion-level moments (pill, folder banner) are exempt.
+- Feedback has four intensities: continuous scroll follow, frequent 100-word/5%
+  acknowledgements, one deterministic cascade per earned section, and rare
+  milestone/completion peaks. Milestones outrank micro pulses; completion owns
+  the final beat.
 - `suppressCues` ref is true during `setDoc` (doc load/reset): sections passed
-  "for free" at load fire no cues and drain no budget.
+  "for free" at load fire no cues. The generation-scoped timer queue prevents
+  delayed feedback from leaking across document switches or resets.
 - A read that completes the doc fires the pill only (no competing delta).
 - Milestones behind a resume point are pre-marked shown, never re-celebrated
   (`milestonesShown` recomputed in `loadDoc` and in reset).
@@ -340,7 +343,8 @@ progress bar spans the pane at viewport top. Breakpoints: <1180px hides rail
    debugging "bugs".
 3. **Imperative DOM classes get clobbered** by Preact re-renders (frequent:
    `progressVersion` bumps on every scroll advance). Transient UI must be
-   state-driven (`nextUpId`, `ringPulse`, `metaFlash` all exist because of this).
+   state-driven (`nextUpId`, `celebratingSectionId`, `metaFlash` all exist
+   because of this); the ring pulse itself uses WAAPI on a stable ref.
 4. **`loadDoc` must await `stateReady`** or resume races the state fetch and
    restores scroll 0 — and the browser's native scroll restoration will mask
    the bug in reload tests (that's why it's set to `'manual'`).
@@ -389,7 +393,7 @@ progress bar spans the pane at viewport top. Breakpoints: <1180px hides rail
   card (Strava pattern); TTS with synced paragraph highlight (Web Speech API;
   engagement framing only — no comprehension claims, see RESEARCH.md); auto-
   scroll with adjustable pace; full-text search across the folder; "calm mode"
-  (de-emphasize excessive AI bold); momentum glow after N continuous minutes.
+  (de-emphasize excessive AI bold).
 
 ### Smaller improvements (noted during use)
 - Settings panel: ruler band size and j/k slide speed (both hand-tuned twice —
